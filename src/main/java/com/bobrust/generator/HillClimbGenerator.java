@@ -2,8 +2,10 @@ package com.bobrust.generator;
 
 import com.bobrust.util.data.AppConstants;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.IntStream;
 
 class HillClimbGenerator {
 	private static State getBestRandomState(List<State> random_states, ErrorMap errorMap) {
@@ -13,7 +15,21 @@ class HillClimbGenerator {
 			state.score = -1;
 			state.shape.randomize(errorMap);
 		}
-		random_states.parallelStream().forEach(State::getEnergy);
+
+		if (AppConstants.USE_BATCH_PARALLEL) {
+			// Spatial batching: sort by Y coordinate for cache locality,
+			// then process in batches so nearby circles share L2 cache lines
+			random_states.sort(Comparator.comparingInt(s -> s.shape.y));
+			final int batchSize = 50;
+			for (int batch = 0; batch < len; batch += batchSize) {
+				final int start = batch;
+				final int end = Math.min(batch + batchSize, len);
+				// Process each batch in parallel but batches share Y-locality
+				IntStream.range(start, end).parallel().forEach(i -> random_states.get(i).getEnergy());
+			}
+		} else {
+			random_states.parallelStream().forEach(State::getEnergy);
+		}
 
 		float bestEnergy = 0;
 		State bestState = null;
