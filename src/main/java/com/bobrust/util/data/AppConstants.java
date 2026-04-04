@@ -34,6 +34,10 @@ public interface AppConstants {
 	// When true, use local gradient magnitude to bias circle size selection:
 	// small circles near edges/detail, large circles in smooth areas
 	boolean USE_ADAPTIVE_SIZE = true;
+
+	// When true, use batch-parallel energy evaluation with combined color+energy pass,
+	// spatial batching for cache locality, and precomputed alpha blend tables
+	boolean USE_BATCH_PARALLEL = true;
 	
 	// Average canvas colors. Used as default colors
 	Color CANVAS_AVERAGE = new Color(0xb3aba0);
