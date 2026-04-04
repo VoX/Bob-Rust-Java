@@ -27,6 +27,9 @@ public interface AppConstants {
 
 	// When true, use simulated annealing instead of pure hill climbing for shape optimization
 	boolean USE_SIMULATED_ANNEALING = true;
+
+	// When true, bias random circle placement toward high-error regions using importance sampling
+	boolean USE_ERROR_GUIDED_PLACEMENT = true;
 	
 	// Average canvas colors. Used as default colors
 	Color CANVAS_AVERAGE = new Color(0xb3aba0);

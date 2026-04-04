@@ -13,12 +13,23 @@ class Worker {
 	public final int h;
 	public float score;
 	private final AtomicInteger counter = new AtomicInteger();
+	private ErrorMap errorMap;
 
 	public Worker(BorstImage target, int alpha) {
 		this.w = target.width;
 		this.h = target.height;
 		this.target = target;
 		this.alpha = alpha;
+	}
+
+	/** Returns the error map, or null if error-guided placement is disabled. */
+	public ErrorMap getErrorMap() {
+		return errorMap;
+	}
+
+	/** Sets the error map (called from Model when error-guided placement is enabled). */
+	public void setErrorMap(ErrorMap errorMap) {
+		this.errorMap = errorMap;
 	}
 
 	/**

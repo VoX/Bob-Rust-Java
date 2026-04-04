@@ -6,12 +6,12 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 class HillClimbGenerator {
-	private static State getBestRandomState(List<State> random_states) {
+	private static State getBestRandomState(List<State> random_states, ErrorMap errorMap) {
 		final int len = random_states.size();
 		for (int i = 0; i < len; i++) {
 			State state = random_states.get(i);
 			state.score = -1;
-			state.shape.randomize();
+			state.shape.randomize(errorMap);
 		}
 		random_states.parallelStream().forEach(State::getEnergy);
 
@@ -162,11 +162,15 @@ class HillClimbGenerator {
 	}
 
 	public static State getBestHillClimbState(List<State> random_states, int age, int times) {
+		return getBestHillClimbState(random_states, age, times, null);
+	}
+
+	public static State getBestHillClimbState(List<State> random_states, int age, int times, ErrorMap errorMap) {
 		float bestEnergy = 0;
 		State bestState = null;
 
 		for (int i = 0; i < times; i++) {
-			State oldState = getBestRandomState(random_states);
+			State oldState = getBestRandomState(random_states, errorMap);
 			State state = getHillClimb(oldState, age);
 			float energy = state.getEnergy();
 
