@@ -150,12 +150,20 @@ public class BorstSorter {
 			blobs.addAll(Arrays.asList(sort0(pieces, size, localMap)));
 		}
 
+		BlobList result = new BlobList(blobs);
+
+		// Apply 2-opt local search to reduce palette changes + travel distance
+		if (AppConstants.USE_TSP_OPTIMIZATION && result.size() > 2) {
+			TwoOptOptimizer optimizer = new TwoOptOptimizer(size, size);
+			result = optimizer.optimize(result);
+		}
+
 		if (AppConstants.DEBUG_TIME) {
 			long time = System.nanoTime() - start;
 			AppConstants.LOGGER.info("BorstSorter.sort(data, size) took {} ms for {} shapes", time / 1000000.0, data.size());
 		}
 
-		return new BlobList(blobs);
+		return result;
 	}
 	
 	private static Blob[] sort0(Piece[] array, int size, IntList[] map) {

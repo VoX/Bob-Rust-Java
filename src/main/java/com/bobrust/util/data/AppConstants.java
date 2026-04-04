@@ -38,6 +38,14 @@ public interface AppConstants {
 	// When true, use batch-parallel energy evaluation with combined color+energy pass,
 	// spatial batching for cache locality, and precomputed alpha blend tables
 	boolean USE_BATCH_PARALLEL = true;
+
+	// When true, apply 2-opt local search on top of greedy BorstSorter output
+	// to reduce total cost (palette changes + cursor travel distance)
+	boolean USE_TSP_OPTIMIZATION = true;
+
+	// TSP cost function weights
+	float TSP_W_PALETTE = 3.0f;   // Weight for palette change cost
+	float TSP_W_DISTANCE = 1.0f;  // Weight for Euclidean distance cost
 	
 	// Average canvas colors. Used as default colors
 	Color CANVAS_AVERAGE = new Color(0xb3aba0);
