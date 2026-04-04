@@ -91,6 +91,11 @@ public class Model {
 		return score;
 	}
 
+	/** Package-private accessor for the worker (used by MultiResModel). */
+	Worker getWorker() {
+		return worker;
+	}
+
 	private static final int max_random_states = 1000;
 	private static final int age = 100;
 	private static final int times = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
