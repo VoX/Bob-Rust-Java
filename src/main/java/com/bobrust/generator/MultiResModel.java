@@ -100,8 +100,8 @@ public class MultiResModel {
         float scaleX = (float) dims[toLevel][0] / dims[fromLevel][0];
         float scaleY = (float) dims[toLevel][1] / dims[fromLevel][1];
 
-        int newX = Math.round(shape.x * scaleX);
-        int newY = Math.round(shape.y * scaleY);
+        int newX = BorstUtils.clampInt(Math.round(shape.x * scaleX), 0, dims[toLevel][0] - 1);
+        int newY = BorstUtils.clampInt(Math.round(shape.y * scaleY), 0, dims[toLevel][1] - 1);
 
         // Scale the radius and snap to nearest valid size
         int scaledR = Math.round(shape.r * scaleX);
@@ -146,16 +146,9 @@ public class MultiResModel {
     }
 
     /**
-     * Reflectively get the Worker from a Model. This is needed because Worker
-     * is package-private and we need it to create Circle instances.
+     * Get the Worker from a Model via package-private accessor.
      */
     private static Worker getWorker(Model model) {
-        try {
-            var field = Model.class.getDeclaredField("worker");
-            field.setAccessible(true);
-            return (Worker) field.get(model);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to access Model.worker", e);
-        }
+        return model.getWorker();
     }
 }

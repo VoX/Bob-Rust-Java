@@ -29,19 +29,21 @@ class BorstCore {
 			int xe = Math.min(line.x2 + x_offset, w - 1);
 			int idx = y * w;
 			
+			if (xs > xe) continue;
+
 			for (int x = xs; x <= xe; x++) {
 				int tt = target.pixels[idx + x];
 				int cc = current.pixels[idx + x];
-				
+
 				rsum_1 += (tt >>> 16) & 0xff;
 				gsum_1 += (tt >>>  8) & 0xff;
 				bsum_1 += (tt       ) & 0xff;
-				
+
 				rsum_2 += (cc >>> 16) & 0xff;
 				gsum_2 += (cc >>>  8) & 0xff;
 				bsum_2 += (cc       ) & 0xff;
 			}
-			
+
 			count += (xe - xs + 1);
 		}
 
@@ -300,6 +302,7 @@ class BorstCore {
 
 			int xs = Math.max(line.x1 + x_offset, 0);
 			int xe = Math.min(line.x2 + x_offset, w - 1);
+			if (xs > xe) continue;
 			int idx = y * w;
 
 			for (int x = xs; x <= xe; x++) {
