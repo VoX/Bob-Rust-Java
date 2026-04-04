@@ -24,6 +24,9 @@ public interface AppConstants {
 	boolean DEBUG_DRAWN_COLORS = false;
 	boolean DEBUG_TIME = false;
 	int MAX_SORT_GROUP = 1000; // Max 1000 elements per sort
+
+	// When true, use simulated annealing instead of pure hill climbing for shape optimization
+	boolean USE_SIMULATED_ANNEALING = true;
 	
 	// Average canvas colors. Used as default colors
 	Color CANVAS_AVERAGE = new Color(0xb3aba0);
