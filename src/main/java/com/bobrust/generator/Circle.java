@@ -27,8 +27,8 @@ public class Circle {
 	public void mutateShape() {
 		int w = worker.w - 1;
 		int h = worker.h - 1;
-		Random rnd = worker.rnd;
-		
+		Random rnd = worker.getRandom();
+
 		if (rnd.nextInt(3) == 0) {
 			int a = x + (int)(rnd.nextGaussian() * 16);
 			int b = y + (int)(rnd.nextGaussian() * 16);
@@ -39,11 +39,12 @@ public class Circle {
 			r = BorstUtils.clampInt(c, 1, w);
 		}
 	}
-	
+
 	public void randomize() {
-		this.x = worker.rnd.nextInt(worker.w);
-		this.y = worker.rnd.nextInt(worker.h);
-		this.r = BorstUtils.SIZES[worker.rnd.nextInt(BorstUtils.SIZES.length)];
+		Random rnd = worker.getRandom();
+		this.x = rnd.nextInt(worker.w);
+		this.y = rnd.nextInt(worker.h);
+		this.r = BorstUtils.SIZES[rnd.nextInt(BorstUtils.SIZES.length)];
 	}
 	
 	public void fromValues(Circle shape) {

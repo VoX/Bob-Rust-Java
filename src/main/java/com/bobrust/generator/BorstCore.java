@@ -42,12 +42,17 @@ class BorstCore {
 			
 			count += (xe - xs + 1);
 		}
-		
+
+		// Guard against division by zero when circle is entirely out of bounds
+		if (count == 0) {
+			return BorstUtils.COLORS[0];
+		}
+
 		int pd = 65280 / alpha; // (255 << 8) / alpha;
 		long rsum = (rsum_1 - rsum_2) * pd + (rsum_2 << 8);
 		long gsum = (gsum_1 - gsum_2) * pd + (gsum_2 << 8);
 		long bsum = (bsum_1 - bsum_2) * pd + (bsum_2 << 8);
-		
+
 		int r = (int)(rsum / (double)count) >> 8;
 		int g = (int)(gsum / (double)count) >> 8;
 		int b = (int)(bsum / (double)count) >> 8;

@@ -72,6 +72,6 @@ public class Model {
 		State state = HillClimbGenerator.getBestHillClimbState(randomStates, age, times);
 		addShape(state.shape);
 
-		return worker.counter;
+		return worker.getCounter();
 	}
-};
+}
