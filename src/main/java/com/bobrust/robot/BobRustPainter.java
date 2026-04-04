@@ -157,7 +157,7 @@ public class BobRustPainter {
 			lastPoint.setLocation(sx, sy);
 			clickPointScaledDrawColor(robot, lastPoint, autoDelay);
 			
-			if ((i % autosaveInterval) == 0) {
+			if (i > 0 && (i % autosaveInterval) == 0) {
 				clickPoint(robot, palette.getSaveButton(), autoDelay);
 				actions++;
 			}
@@ -217,7 +217,7 @@ public class BobRustPainter {
 			addTimeDelay(retryTime + delay * 3.0);
 		} while (maxAttempts-- > 0);
 
-		if (maxAttempts == 0) {
+		if (maxAttempts < 0) {
 			LOGGER.warn("Potentially failed to paint color! Will still keep trying to draw");
 		}
 
