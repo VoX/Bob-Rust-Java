@@ -41,9 +41,25 @@ public class Circle {
 	}
 
 	public void randomize() {
+		randomize(null);
+	}
+
+	/**
+	 * Randomize circle position and size.
+	 * When an {@link ErrorMap} is provided and error-guided placement is enabled,
+	 * 80% of placements are biased toward high-error regions via importance
+	 * sampling. The remaining 20% use uniform random placement for exploration.
+	 */
+	public void randomize(ErrorMap errorMap) {
 		Random rnd = worker.getRandom();
-		this.x = rnd.nextInt(worker.w);
-		this.y = rnd.nextInt(worker.h);
+		if (errorMap != null && rnd.nextFloat() < 0.8f) {
+			int[] pos = errorMap.samplePosition(rnd);
+			this.x = pos[0];
+			this.y = pos[1];
+		} else {
+			this.x = rnd.nextInt(worker.w);
+			this.y = rnd.nextInt(worker.h);
+		}
 		this.r = BorstUtils.SIZES[rnd.nextInt(BorstUtils.SIZES.length)];
 	}
 	
