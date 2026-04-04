@@ -46,6 +46,10 @@ public interface AppConstants {
 	// TSP cost function weights
 	float TSP_W_PALETTE = 3.0f;   // Weight for palette change cost
 	float TSP_W_DISTANCE = 1.0f;  // Weight for Euclidean distance cost
+
+	// When true, use progressive multi-resolution generation:
+	// first 10% shapes at quarter res, next 30% at half res, remaining 60% at full res
+	boolean USE_PROGRESSIVE_RESOLUTION = true;
 	
 	// Average canvas colors. Used as default colors
 	Color CANVAS_AVERAGE = new Color(0xb3aba0);
