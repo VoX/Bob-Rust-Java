@@ -24,6 +24,7 @@ public class Model {
 	protected float score;
 
 	private ErrorMap errorMap;
+	private GradientMap gradientMap;
 
 	public Model(BorstImage target, int backgroundRGB, int alpha) {
 		int w = target.width;
@@ -48,6 +49,13 @@ public class Model {
 			this.errorMap = new ErrorMap(w, h);
 			this.errorMap.computeFull(target, current);
 			this.worker.setErrorMap(this.errorMap);
+		}
+
+		// Initialize gradient map if adaptive size selection is enabled
+		if (AppConstants.USE_ADAPTIVE_SIZE) {
+			this.gradientMap = new GradientMap(w, h);
+			this.gradientMap.compute(target);
+			this.worker.setGradientMap(this.gradientMap);
 		}
 	}
 

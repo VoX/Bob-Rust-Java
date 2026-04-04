@@ -14,6 +14,7 @@ class Worker {
 	public float score;
 	private final AtomicInteger counter = new AtomicInteger();
 	private ErrorMap errorMap;
+	private GradientMap gradientMap;
 
 	public Worker(BorstImage target, int alpha) {
 		this.w = target.width;
@@ -30,6 +31,16 @@ class Worker {
 	/** Sets the error map (called from Model when error-guided placement is enabled). */
 	public void setErrorMap(ErrorMap errorMap) {
 		this.errorMap = errorMap;
+	}
+
+	/** Returns the gradient map, or null if adaptive sizing is disabled. */
+	public GradientMap getGradientMap() {
+		return gradientMap;
+	}
+
+	/** Sets the gradient map (called from Model when adaptive sizing is enabled). */
+	public void setGradientMap(GradientMap gradientMap) {
+		this.gradientMap = gradientMap;
 	}
 
 	/**
