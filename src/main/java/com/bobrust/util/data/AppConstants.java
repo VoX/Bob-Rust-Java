@@ -30,6 +30,10 @@ public interface AppConstants {
 
 	// When true, bias random circle placement toward high-error regions using importance sampling
 	boolean USE_ERROR_GUIDED_PLACEMENT = true;
+
+	// When true, use local gradient magnitude to bias circle size selection:
+	// small circles near edges/detail, large circles in smooth areas
+	boolean USE_ADAPTIVE_SIZE = true;
 	
 	// Average canvas colors. Used as default colors
 	Color CANVAS_AVERAGE = new Color(0xb3aba0);
