@@ -78,6 +78,19 @@ public class Model {
 		}
 	}
 	
+	/**
+	 * Add a pre-defined shape to this model without running optimization.
+	 * Used by MultiResModel to propagate shapes from lower to higher resolutions.
+	 */
+	public void addExternalShape(Circle shape) {
+		addShape(shape);
+	}
+
+	/** Returns the current model score. */
+	public float getScore() {
+		return score;
+	}
+
 	private static final int max_random_states = 1000;
 	private static final int age = 100;
 	private static final int times = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
