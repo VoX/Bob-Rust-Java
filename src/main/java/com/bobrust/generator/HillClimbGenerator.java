@@ -89,7 +89,7 @@ class HillClimbGenerator {
 
 		// Estimate initial temperature from sample mutations
 		float temperature = estimateTemperature(state);
-		int totalIterations = maxAge * 10;
+		int totalIterations = maxAge * 3; // 3x hill climb iterations balances exploration vs speed
 		float coolingRate = computeCoolingRate(temperature, maxAge);
 
 		State undo = state.getCopy();
@@ -145,7 +145,7 @@ class HillClimbGenerator {
 		State probe = state.getCopy();
 		State undo = probe.getCopy();
 		float totalDelta = 0;
-		int samples = 30;
+		int samples = 10; // fewer probes for faster temperature estimation
 
 		for (int i = 0; i < samples; i++) {
 			float before = probe.getEnergy();
@@ -167,7 +167,7 @@ class HillClimbGenerator {
 	 * {@code initialTemp} to near-zero (0.001) over {@code maxAge * 10} iterations.
 	 */
 	static float computeCoolingRate(float initialTemp, int maxAge) {
-		int totalIterations = maxAge * 10;
+		int totalIterations = maxAge * 3; // 3x hill climb iterations balances exploration vs speed
 		float finalTemp = 0.001f;
 		if (initialTemp <= finalTemp) {
 			return 0.99f; // fallback if temperature is already tiny
