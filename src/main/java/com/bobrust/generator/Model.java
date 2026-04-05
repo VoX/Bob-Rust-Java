@@ -98,7 +98,7 @@ public class Model {
 
 	private static final int max_random_states = 1000;
 	private static final int age = 100;
-	private static final int times = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
+	private static final int times = 1; // SA explores well enough without multiple chains; keeps speed comparable to original
 	
 	private List<State> randomStates;
 	
