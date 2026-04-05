@@ -4,7 +4,7 @@ import com.bobrust.robot.BobRustPainter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-class CircleCache {
+public class CircleCache {
 	private static final Logger LOGGER = LogManager.getLogger(BobRustPainter.class);
 
 	private static final Scanline[] CIRCLE_0;
