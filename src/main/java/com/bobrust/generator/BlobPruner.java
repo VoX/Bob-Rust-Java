@@ -47,28 +47,63 @@ public final class BlobPruner {
 	 * Opt-in pruning parameters. {@link #NONE} (the default) disables pruning
 	 * entirely — the paint pipeline behaves exactly as before.
 	 *
-	 * @param budget       hard cap on kept candidate blobs; {@code <= 0} means
-	 *                     no budget. Cheapest true-delta blobs are dropped
-	 *                     first until the cap is met.
-	 * @param maxScoreLoss maximum allowed relative increase of the true
-	 *                     re-rendered RMSE over the unpruned render (e.g.
-	 *                     {@code 0.01} = 1%); negative means no tolerance
-	 *                     pass. {@code 0.0} still drops free blobs (fully
-	 *                     occluded / off-canvas / score-improving).
+	 * @param budget        hard cap on kept candidate blobs; {@code <= 0} means
+	 *                      no absolute budget. Cheapest true-delta blobs are
+	 *                      dropped first until the cap is met.
+	 * @param budgetPercent relative hard cap: keep at most this percent of the
+	 *                      candidate chunk ({@code <= 0} = none; ignored when
+	 *                      an absolute {@code budget} is set). S3 presets use
+	 *                      this form so one preset scales across sign sizes
+	 *                      and shape counts; serialized as {@code budget=70%}.
+	 * @param maxScoreLoss  maximum allowed relative increase of the true
+	 *                      re-rendered RMSE over the unpruned render (e.g.
+	 *                      {@code 0.01} = 1%); negative means no tolerance
+	 *                      pass. {@code 0.0} still drops free blobs (fully
+	 *                      occluded / off-canvas / score-improving).
 	 */
-	public record Options(int budget, double maxScoreLoss) {
-		public static final Options NONE = new Options(0, -1.0);
+	public record Options(int budget, int budgetPercent, double maxScoreLoss) {
+		public static final Options NONE = new Options(0, 0, -1.0);
 
-		public boolean enabled() {
-			return budget > 0 || maxScoreLoss >= 0;
+		public Options {
+			if (budgetPercent > 100) {
+				budgetPercent = 100;
+			}
 		}
 
-		public String serialize() {
-			return "budget=" + budget + ";maxLoss=" + maxScoreLoss;
+		/** Absolute-budget form (the pre-S3 constructor). */
+		public Options(int budget, double maxScoreLoss) {
+			this(budget, 0, maxScoreLoss);
+		}
+
+		public boolean enabled() {
+			return budget > 0 || budgetPercent > 0 || maxScoreLoss >= 0;
 		}
 
 		/**
-		 * Parse {@code "budget=1500;maxLoss=0.01"} (any subset of keys).
+		 * The hard cap for a chunk of {@code candidateCount} blobs: the
+		 * absolute budget if set, else the percent of the chunk, else 0
+		 * (no cap).
+		 */
+		public int effectiveBudget(int candidateCount) {
+			if (budget > 0) {
+				return budget;
+			}
+			if (budgetPercent > 0) {
+				return Math.max(1, candidateCount * budgetPercent / 100);
+			}
+			return 0;
+		}
+
+		public String serialize() {
+			String budgetText = budgetPercent > 0 && budget <= 0
+				? budgetPercent + "%"
+				: Integer.toString(budget);
+			return "budget=" + budgetText + ";maxLoss=" + maxScoreLoss;
+		}
+
+		/**
+		 * Parse {@code "budget=1500;maxLoss=0.01"} or the percent form
+		 * {@code "budget=70%;maxLoss=0.03"} (any subset of keys).
 		 * Null/blank/malformed input yields {@link #NONE} semantics per key.
 		 */
 		public static Options parse(String text) {
@@ -76,6 +111,7 @@ public final class BlobPruner {
 				return NONE;
 			}
 			int budget = NONE.budget();
+			int budgetPercent = NONE.budgetPercent();
 			double maxLoss = NONE.maxScoreLoss();
 			for (String entry : text.split(";")) {
 				int split = entry.indexOf('=');
@@ -86,14 +122,20 @@ public final class BlobPruner {
 				String value = entry.substring(split + 1).trim();
 				try {
 					switch (key) {
-						case "budget" -> budget = Integer.parseInt(value);
+						case "budget" -> {
+							if (value.endsWith("%")) {
+								budgetPercent = Integer.parseInt(value.substring(0, value.length() - 1).trim());
+							} else {
+								budget = Integer.parseInt(value);
+							}
+						}
 						case "maxLoss" -> maxLoss = Double.parseDouble(value);
 					}
 				} catch (NumberFormatException ignored) {
 					// Malformed value — keep the disabled default for this key
 				}
 			}
-			return new Options(budget, maxLoss);
+			return new Options(budget, budgetPercent, maxLoss);
 		}
 	}
 
@@ -124,8 +166,9 @@ public final class BlobPruner {
 	 * every pinned stamp preceding every candidate stamp.
 	 */
 	public static Result prune(List<Blob> pinned, List<Blob> candidates, BorstImage target, int background, Options options) {
+		final int budget = options.effectiveBudget(candidates.size());
 		if (!options.enabled() || candidates.isEmpty()
-				|| (options.budget() <= 0 || options.budget() >= candidates.size()) && options.maxScoreLoss() < 0) {
+				|| (budget <= 0 || budget >= candidates.size()) && options.maxScoreLoss() < 0) {
 			double score = renderScore(concat(pinned, candidates), target, background);
 			return new Result(List.copyOf(candidates), candidates.size(), score, score);
 		}
@@ -139,7 +182,6 @@ public final class BlobPruner {
 		final double limitTotal = options.maxScoreLoss() >= 0
 			? originalTotal * (1.0 + options.maxScoreLoss()) * (1.0 + options.maxScoreLoss())
 			: -1;
-		final int budget = options.budget();
 
 		// Lazy greedy over verified true deltas. Heap keys are exact at the
 		// version they were computed; a key only goes stale when a committed

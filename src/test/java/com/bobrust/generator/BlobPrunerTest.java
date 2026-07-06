@@ -194,6 +194,42 @@ class BlobPrunerTest {
 		assertFalse(BlobPruner.Options.parse("budget=0;maxLoss=-1").enabled());
 	}
 
+	/** S3: relative budgets ({@code budget=70%}) scale with the chunk size. */
+	@Test
+	void percentBudgetParsesScalesAndRoundTrips() {
+		BlobPruner.Options options = BlobPruner.Options.parse("budget=70%;maxLoss=0.03");
+		assertEquals(0, options.budget());
+		assertEquals(70, options.budgetPercent());
+		assertEquals(0.03, options.maxScoreLoss(), 0.0);
+		assertTrue(options.enabled());
+		assertEquals("budget=70%;maxLoss=0.03", options.serialize());
+		assertEquals(options, BlobPruner.Options.parse(options.serialize()));
+
+		assertEquals(140, options.effectiveBudget(200));
+		assertEquals(1, options.effectiveBudget(1), "percent budget never rounds to zero");
+		// An absolute budget takes precedence over a percent.
+		assertEquals(500, new BlobPruner.Options(500, 70, -1).effectiveBudget(200));
+		// No budget at all.
+		assertEquals(0, new BlobPruner.Options(0, 0, 0.01).effectiveBudget(200));
+		// Percent is clamped to 100.
+		assertEquals(100, new BlobPruner.Options(0, 150, -1).budgetPercent());
+	}
+
+	/** A percent budget prunes to the same kept set as its absolute equivalent. */
+	@Test
+	void percentBudgetPrunesLikeTheEquivalentAbsoluteBudget() {
+		TestBlobs.Generated data = TestBlobs.generate(TestImageGenerator.createNature(), 300);
+
+		BlobPruner.Result percent = BlobPruner.prune(data.blobs(), data.target(), BACKGROUND,
+			new BlobPruner.Options(0, 70, -1));
+		BlobPruner.Result absolute = BlobPruner.prune(data.blobs(), data.target(), BACKGROUND,
+			new BlobPruner.Options(210, -1));
+
+		assertEquals(210, percent.kept().size(), "70% of 300 candidates");
+		assertEquals(absolute.kept(), percent.kept());
+		assertEquals(absolute.prunedScore(), percent.prunedScore(), 0.0);
+	}
+
 	/** S1a: recorded marginal contributions are exposed per blob and sum to the total improvement. */
 	@Test
 	void contributionsAreRecordedPerShape() {

@@ -46,7 +46,7 @@ public class PaintPlan {
 	private int painted; // instructions successfully painted (resume cursor)
 	private BlobPruner.Result lastPruneResult;
 
-	public void reset() {
+	public synchronized void reset() {
 		instructions.clear();
 		chunks.clear();
 		covered = 0;
@@ -62,7 +62,7 @@ public class PaintPlan {
 	 * @param target the scaled target image; only consulted when
 	 *               {@code options} enables pruning (may be null otherwise)
 	 */
-	public void extend(List<Blob> generated, int generatedCount, BlobPruner.Options options, BorstImage target, int background) {
+	public synchronized void extend(List<Blob> generated, int generatedCount, BlobPruner.Options options, BorstImage target, int background) {
 		int end = Math.min(generatedCount, generated.size());
 		if (end <= covered) {
 			return;
@@ -91,7 +91,7 @@ public class PaintPlan {
 	 * semantics); a pruned chunk has no per-shape mapping, so any count inside
 	 * it maps to the chunk's end.
 	 */
-	public int planIndexFor(int generatedCount) {
+	public synchronized int planIndexFor(int generatedCount) {
 		int index = 0;
 		for (Chunk chunk : chunks) {
 			if (generatedCount >= chunk.genEnd()) {
@@ -112,7 +112,7 @@ public class PaintPlan {
 	 * The instructions to paint now: from the resume cursor up to the plan
 	 * index covering {@code generatedCount}.
 	 */
-	public BlobList paintList(int generatedCount) {
+	public synchronized BlobList paintList(int generatedCount) {
 		int end = Math.max(painted, planIndexFor(generatedCount));
 		BlobList list = new BlobList();
 		list.assign(instructions, painted, end - painted);
@@ -120,32 +120,46 @@ public class PaintPlan {
 	}
 
 	/** Record {@code count} more instructions as successfully painted. */
-	public void advancePainted(int count) {
+	public synchronized void advancePainted(int count) {
 		painted = Math.min(instructions.size(), painted + Math.max(0, count));
 	}
 
 	/** Number of generated blobs the plan covers. */
-	public int coveredGenerated() {
+	public synchronized int coveredGenerated() {
 		return covered;
 	}
 
 	/** Total instructions in the plan. */
-	public int size() {
+	public synchronized int size() {
 		return instructions.size();
 	}
 
 	/** The resume cursor: instructions already painted. */
-	public int getPainted() {
+	public synchronized int getPainted() {
 		return painted;
 	}
 
 	/** The full instruction list (live, read-only use). */
-	public List<Blob> getInstructions() {
+	public synchronized List<Blob> getInstructions() {
 		return instructions;
 	}
 
 	/** The most recent chunk's pruning result, or null if never pruned. */
-	public BlobPruner.Result getLastPruneResult() {
+	public synchronized BlobPruner.Result getLastPruneResult() {
 		return lastPruneResult;
+	}
+
+	/**
+	 * An independent snapshot of this plan (instructions, chunks, cursors) —
+	 * the S2 estimator extends the copy to preview what a paint run from the
+	 * current state would do, without mutating the real plan.
+	 */
+	public synchronized PaintPlan copy() {
+		PaintPlan out = new PaintPlan();
+		out.instructions.addAll(instructions);
+		out.chunks.addAll(chunks);
+		out.covered = covered;
+		out.painted = painted;
+		return out;
 	}
 }

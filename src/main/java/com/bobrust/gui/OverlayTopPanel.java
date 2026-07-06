@@ -5,11 +5,8 @@ import java.awt.*;
 import javax.swing.*;
 
 import com.bobrust.lang.RustTranslator;
-import com.bobrust.settings.Settings;
 
 public class OverlayTopPanel extends JPanel {
-	private static final int ESTIMATE_DELAY_OFFSET = 14;
-	
 	final JLabel generationLabel;
 	final JLabel generationInfo;
 	
@@ -38,11 +35,14 @@ public class OverlayTopPanel extends JPanel {
 	public void setExactGenerationLabel(long time) {
 		generationInfo.setText("Time %s".formatted(RustTranslator.getTimeMinutesMessage(time)));
 	}
-	
+
+	/**
+	 * Only updates the shape counter — the time readout is owned by the S2
+	 * model-based estimate ({@link #setExactGenerationLabel}), which replaced
+	 * the old {@code 1.3 × (14 + 1000/cps)} fudge that used to live here.
+	 */
 	public void setGeneratedShapes(int shapesUsed, int maxShapes) {
-		long time = (long) (shapesUsed * 1.3 * (ESTIMATE_DELAY_OFFSET + 1000.0 / (double) Settings.SettingsClickInterval.get()));
 		generationLabel.setText("%d/%d shapes used".formatted(shapesUsed, maxShapes));
-		generationInfo.setText("Estimated %s".formatted(RustTranslator.getTimeMinutesMessage(time)));
 	}
 	
 	public void setDrawnShapes(int index, int maxShapes, long timeLeft) {

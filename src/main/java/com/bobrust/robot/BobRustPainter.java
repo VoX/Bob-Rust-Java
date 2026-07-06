@@ -66,6 +66,11 @@ public class BobRustPainter {
 		int clickInterval = Settings.SettingsClickInterval.get();
 		double autoDelay = 1000.0 / (clickInterval * 3.0);
 		int autosaveInterval = Settings.SettingsAutosaveInterval.get();
+		// S3 verification cadence: verify the painted pixel every Nth canvas
+		// click (1 = every click, the classic behavior). Tool-change
+		// verification below is never skipped — a missed color change would
+		// corrupt every following blob.
+		int verifyInterval = Math.max(1, Settings.SettingsClickVerifyInterval.get());
 		
 		// Configure the robot
 		robot.setAutoDelay(0);
@@ -155,7 +160,7 @@ public class BobRustPainter {
 			int sy = (int) ty + displayY;
 			
 			lastPoint.setLocation(sx, sy);
-			clickPointScaledDrawColor(robot, lastPoint, autoDelay);
+			clickPointScaledDrawColor(robot, lastPoint, autoDelay, (i % verifyInterval) == 0);
 			
 			if (i > 0 && (i % autosaveInterval) == 0) {
 				clickPoint(robot, palette.getSaveButton(), autoDelay);
@@ -187,11 +192,31 @@ public class BobRustPainter {
 	}
 	
 	/**
-	 * Click a point on the screen with a scaled point
+	 * Click a point on the screen with a scaled point. When {@code verify} is
+	 * false (S3 sparse verification) the two {@code getPixelColor} screen
+	 * captures and the retry loop are skipped — the click keeps the exact same
+	 * three-delay cadence, it just drops the ~2 capture tax.
 	 */
-	private void clickPointScaledDrawColor(Robot robot, Point point, double delay) throws PaintingInterrupted {
+	private void clickPointScaledDrawColor(Robot robot, Point point, double delay, boolean verify) throws PaintingInterrupted {
 		robot.mouseMove(point.x, point.y);
 		addTimeDelay(System.nanoTime() / 1000000.0 + delay);
+
+		if (!verify) {
+			double time = System.nanoTime() / 1000000.0;
+
+			if (ALLOW_PRESSES) {
+				robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+			}
+			addTimeDelay(time + delay);
+
+			if (ALLOW_PRESSES) {
+				robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+			}
+			addTimeDelay(time + delay * 2.0);
+
+			checkMouseDisplacement(point);
+			return;
+		}
 
 		Color before = robot.getPixelColor(point.x, point.y);
 
@@ -221,7 +246,11 @@ public class BobRustPainter {
 			LOGGER.warn("Potentially failed to paint color! Will still keep trying to draw");
 		}
 
-		// Check if the user moved the mouse
+		checkMouseDisplacement(point);
+	}
+
+	/** Interrupt painting if the user moved the mouse away from the target. */
+	private void checkMouseDisplacement(Point point) throws PaintingInterrupted {
 		var pointerInfo = MouseInfo.getPointerInfo();
 		if (pointerInfo != null) {
 			double distance = point.distance(pointerInfo.getLocation());

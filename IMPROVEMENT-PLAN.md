@@ -83,8 +83,14 @@ Phase 6), `PAINT_THRESHOLD`, GradientMap max-normalization caveat.
   unpruned, `previouslyUsed` TODO resolved), opt-in via `SettingsPaintPrune`.
   Measured curves in §3 Phase 3.
 
-**NOT done — the remaining work** (§3 below): paint-speed / robustness /
-packaging features (S2+, C1, R1, …) and the deferred G5 parallel-refine item.
+- ✅ **S2+S3 paint-time estimator + preset ladder** — `PaintTimeEstimator`
+  (cost model verified against `BobRustPainter`, calibrated `t_cap`, live
+  debounced readout replacing the EDT-freezing button), `PaintPreset`
+  {Blazing/Fast/Balanced/Max Quality} preset row in `DrawDialog`,
+  verification-cadence knob in the painter. Measured ladder in §3 Phase 3.
+
+**NOT done — the remaining work** (§3 below): calibration / robustness
+features (C1, R1, …) and the deferred G5 parallel-refine item.
 
 ---
 
@@ -278,22 +284,50 @@ and age=50 did NOT validate at parity — both stay config-reachable.*
     *improves* quality at 90% on solid/nature (net-harmful blobs get culled).
     Blob-count → paint-minutes is linear, so budget% reads directly as paint
     time; S2's estimator will label the presets from these curves.
-- **S2 — Paint-time estimator + live readout in `DrawDialog`. NEXT, M, deps:
-  2-opt ✅, S1 ✅ (estimate the pruned `PaintPlan`, not the raw shape count;
-  the S1 curve data labels quality).** Replaces the `OverlayTopPanel` fudge and the (formerly
-  EDT-freezing) "Calculate Exact Time" button with a debounced background
-  `SwingWorker`: "≈ 1m 12s · ≈ 84% match". Cost model verified line-by-line
-  against `BobRustPainter`; persist `t_cap`.
-  *Success: estimate within ±10% of a real paint run.*
+- **S2 — Paint-time estimator + live readout in `DrawDialog`. ✅ DONE, M.**
+  `PaintTimeEstimator`, verified line-by-line against `BobRustPainter`:
+  `T = (N + C + autosaves + 4)·(1000/cps) + (2·⌈N/v⌉ + 2·C + 2)·t_cap
+  + 17·150ms setup`, where `C = RustUtil.getScore(sortedPlan) − 4` counts
+  size+color+alpha+shape changes (Q2's per-shape alpha made alpha changes
+  real — they are NOT assumed zero), `v` is the verification cadence, and
+  mouse travel is free (`Robot.mouseMove` teleports). `t_cap` persists in the
+  hidden `SettingsCaptureMs` and is re-calibrated after every paint run of
+  ≥50 blobs by inverting the (linear-in-t_cap) model against the realized
+  pace, 50/50 EWMA — retry overhead is deliberately absorbed into it. The
+  EDT-freezing "Calculate Exact Time" button and the `OverlayTopPanel`
+  `1.3×(14+1000/cps)` fudge are gone; a debounced (300 ms) background
+  `SwingWorker` previews the REAL plan (PaintPlan copy → extend/prune → sort)
+  on slider/cps/preset/data change and shows "≈ 1m 12s paint · ≈ 84% match"
+  (match = % of blank-canvas error removed, true re-render, exact kernel).
+  Estimator math is unit-test-pinned (closed form, cadence, autosaves,
+  calibration inversion, match bounds). *The ±10% success criterion needs a
+  real paint run — headless box; the calibration loop is in place.*
 - **S3 — Preset ladder (Blazing/Fast/Balanced/Max Quality) + verification
-  throttling + cps presets. LATER, S–M, deps: S1, S2, G3 (presets set the new
-  Settings).** Every knob maps to a real target; keep the slider as fine
-  budget control + "(Custom)" dirty state. Verification throttling ≈
-  2.5–3×/blob at the Blazing end (skip the ~2·t_cap `getPixelColor` tax);
-  mitigate reliability with sparse verification. (Retry-timer sub-item stays
-  dropped — `retryTime` already re-anchors per iteration.) Preset numbers
-  come from F1 runs, not formulas.
-  *Success: presets ship with measured (time, match%) labels from F1.*
+  throttling + cps presets. ✅ DONE, S–M.** `PaintPreset` is the single source
+  of truth: each preset → `GeneratorConfig` + `SettingsPaintPrune` (percent
+  budgets, `budget=70%`, scale across sign sizes) + `SettingsClickInterval` +
+  the new `SettingsClickVerifyInterval` (painter verifies the canvas pixel
+  every Nth click; tool-change verification is never skipped). DrawDialog
+  preset button row; hand-tweaking slider/cps flips to "(Custom)"; slider
+  stays the fine control. Default = BALANCED. Measured ladder (F1 corpus,
+  800 shapes, t_cap=12 ms, `PruneBenchmarkTest.presetLadder`):
+  - **Balanced** (gen defaults, maxLoss=0 verified-free pruning, 30 cps,
+    verify every click): RMSE never worse than today on all 5 images at
+    −13% corpus blobs → paint 1.04–1.40× faster. The only default-behavior
+    delta and it is verified-free per drop.
+  - **Fast** (S1's maxLoss=1% row, 40 cps, verify every 5th): ≤1% RMSE loss
+    (adaptive: −38% blobs on solid, −4% on edges), paint 1.7–2.4× faster
+    than today, match within 0.3 pp everywhere.
+  - **Blazing** (budget=70%+maxLoss=3%, states=250/age=50 — the G3 speed
+    rows, 50 cps, verify every 10th): paint 2.2–3.1× faster; draft-quality
+    on hard images (edges match 85.6% vs 92.3%) — the accepted trade.
+  - **Max Quality** (states=1000 — G3's pre-tune row, no pruning, 25 cps):
+    best metrics on 4/5 images (edges SSIM 0.979 vs 0.965), slowest.
+  Preset→knob mapping is test-pinned; ladder monotonicity too. *Compile-
+  verified only: the Swing GUI and the painter cadence path (headless box);
+  cps>30 in-game click reliability is the documented open risk — sparse
+  verification bounds it to N blobs. Deferred: A3 size-floor/palette-mask
+  vocabulary restriction (no measured curve, no generator plumbing).*
 
 ### Phase 4 — Correct the objective (long pole — start plumbing early)
 
@@ -368,18 +402,21 @@ All LATER; corrections from the validation pass unchanged:
 **Landed:** F1 (harness + metrics + runtime config), Phase G (G1–G4, measured
 3.6–4.9× at quality parity), Phase Q (Q1+Q2, measured corpus ΔE00 −30.5%
 at 300 shapes / −36% at 800 at equal shape count, net faster; defaults tuned
-and pinned by tests) and S1 (blob pruning/budget + `PaintPlan` instruction
-list, opt-in; measured −38% blobs on solid / −25% on nature at ≤1% verified
-score loss, curve data for the S3 presets).
+and pinned by tests), S1 (blob pruning/budget + `PaintPlan` instruction
+list; measured −38% blobs on solid / −25% on nature at ≤1% verified score
+loss) and S2+S3 (calibrated paint-time estimator + live readout + the
+measured preset ladder: Balanced never-worse and 1.04–1.40× faster paint by
+default, Fast 1.7–2.4×, Blazing 2.2–3.1× as a draft tier).
 
-**Highest-leverage remaining code changes:** S2/S3 (paint-time estimator +
-preset ladder — the UI that actually spends S1's paint-minutes win); C1/P9
-calibration on the correctness side (it also unlocks the painted-sign share
-of Q2's win and would let `minAlpha=0` be reconsidered); G5 parallel refine
-chains on the compute side — post-G2 the sequential refine phase is the
-dominant generation cost. P12 pruning is now unblocked too (Q2's opaque
-stamps create the fully-occluded shapes it harvests) and can reuse S1's
-replay engine directly.
+**Highest-leverage remaining code changes:** C1/P9 calibration on the
+correctness side (it also unlocks the painted-sign share of Q2's win, would
+let `minAlpha=0` be reconsidered, and is the estimator's path from ±model to
+±measured on real signs); G5 parallel refine chains on the compute side —
+post-G2 the sequential refine phase is the dominant generation cost. P12
+pruning is now unblocked too (Q2's opaque stamps create the fully-occluded
+shapes it harvests) and can reuse S1's replay engine directly. In-game
+validation of the S3 cps/verification tiers (dropped-stroke sweep, §A4 of
+PROPOSALS-SPEED) needs a Rust session.
 
 > Numbers and harness details: `PERFORMANCE-PLAN.md`. What the fix pass
 > changed and why: `FIXES-APPLIED.md`. Validation provenance of P7–P18:

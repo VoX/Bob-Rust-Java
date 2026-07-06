@@ -168,6 +168,32 @@ class PaintPlanTest {
 		assertEquals(250, plan.coveredGenerated(), "the slider still covers all generated shapes");
 	}
 
+	/** S2: the estimator previews on a copy; the real plan must never move. */
+	@Test
+	void copyIsIndependentOfTheOriginal() {
+		TestBlobs.Generated data = TestBlobs.generate(TestImageGenerator.createNature(), 300);
+		List<Blob> generated = data.blobs();
+
+		PaintPlan plan = new PaintPlan();
+		plan.extend(generated, 100, BlobPruner.Options.NONE, null, BACKGROUND);
+		plan.advancePainted(30);
+
+		PaintPlan copy = plan.copy();
+		assertEquals(plan.getInstructions(), copy.getInstructions());
+		assertEquals(plan.getPainted(), copy.getPainted());
+		assertEquals(plan.coveredGenerated(), copy.coveredGenerated());
+		assertEquals(plan.planIndexFor(80), copy.planIndexFor(80));
+
+		// Extending the copy (the estimator's preview) leaves the original.
+		copy.extend(generated, 300, BlobPruner.Options.NONE, null, BACKGROUND);
+		assertEquals(300, copy.coveredGenerated());
+		assertEquals(100, plan.coveredGenerated());
+		assertEquals(100, plan.size());
+		// And the copy's preview paints exactly the original's resume suffix
+		// plus the extension.
+		assertEquals(copy.size() - 30, copy.paintList(300).getList().size());
+	}
+
 	@Test
 	void resetClearsEverything() {
 		List<Blob> generated = TestBlobs.generate(TestImageGenerator.createSolid(), 50).blobs();
