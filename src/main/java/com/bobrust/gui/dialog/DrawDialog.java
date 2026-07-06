@@ -63,6 +63,8 @@ public class DrawDialog extends JDialog {
 	private final ButtonGroup presetGroup = new ButtonGroup();
 	/** S5/P2b: explicit opaque-paint (stencil) override — the auto alpha classifier can never select it. */
 	private final JCheckBox stencilCheckbox;
+	/** The alpha floor stencil overrode, captured when it was switched ON, restored when switched OFF. */
+	private int preStencilFloor = AppConstants.MIN_ALPHA_INDEX;
 	private final JLabel presetCustomLabel;
 	private final JLabel estimateLabel;
 	private final JLabel estimateDetailLabel;
@@ -325,22 +327,21 @@ public class DrawDialog extends JDialog {
 
 	/**
 	 * S5/P2b: the stencil toggle. ON forces the opaque alpha floor ({@code minAlpha=5}) as a hand-tweak (opaque is a
-	 * deliberate override, not a preset); OFF restores the active non-CUSTOM preset's floor, else the shipped
-	 * default. Either way the generation config changed, so the model is stale — restart fresh, same contract as
-	 * {@link #applyPreset}. {@code setSelected} does not fire this listener, so the sync paths can set the box freely.
+	 * deliberate override, not a preset); OFF restores the exact floor stencil overrode — captured on the way in,
+	 * because {@code markCustom()} flips the preset to CUSTOM so the pre-stencil floor (e.g. a preset's auto floor)
+	 * can't be recovered from the preset on the way out. This keeps toggling a clean round-trip. Either way the
+	 * generation config changed, so the model is stale — restart fresh, same contract as {@link #applyPreset}.
+	 * {@code setSelected} does not fire this listener, so the sync paths can set the box freely.
 	 */
 	private void onStencilToggled() {
 		GeneratorConfig current = Settings.getGeneratorConfig();
 		if (stencilCheckbox.isSelected()) {
+			preStencilFloor = current.minAlphaIndex(); // may be MIN_ALPHA_AUTO (-1) for a BALANCED/FAST preset
 			Settings.SettingsGeneratorConfig.set(current.withMinAlphaIndex(5).serialize());
 			markCustom();
 		} else {
-			PaintPreset preset = Settings.SettingsPaintPreset.get();
-			int floor = (preset != PaintPreset.CUSTOM && preset.getParams() != null)
-				? preset.getParams().generator().minAlphaIndex()
-				: AppConstants.MIN_ALPHA_INDEX;
-			Settings.SettingsGeneratorConfig.set(current.withMinAlphaIndex(floor).serialize());
-			// preset-restore is not a hand-tweak -> deliberately no markCustom()
+			Settings.SettingsGeneratorConfig.set(current.withMinAlphaIndex(preStencilFloor).serialize());
+			preStencilFloor = AppConstants.MIN_ALPHA_INDEX; // consumed; default fallback if stencil was on at open
 		}
 		if (monitor != null) {
 			restartGenerationFresh();
