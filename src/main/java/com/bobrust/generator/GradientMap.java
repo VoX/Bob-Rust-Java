@@ -25,6 +25,13 @@ public class GradientMap {
 	final int imageWidth;
 	final int imageHeight;
 
+	/** Click-aware size tilt (S3/P1b). 0 = off: the weight table is the exact original expression in the original
+	 *  accumulation order, so {@link #selectSizeIndex} stays bit-identical. beta&gt;0 multiplies each size's weight by
+	 *  {@code (SIZES[i]^2)^beta} — an area-per-click tilt on top of the gradient prior (beta=1 ~ selection probability
+	 *  proportional to covered area x gradient prior). Only meaningful when the map actually drives size selection
+	 *  ({@code adaptiveSize=true}); harmless on the stats-only path. */
+	private final double sizeClickBias;
+
 	/** Normalized gradient values per grid cell, range [0,1]. */
 	final float[] cellGradients;
 
@@ -44,10 +51,19 @@ public class GradientMap {
 	private float[] cumulativeWeights;
 
 	public GradientMap(int imageWidth, int imageHeight) {
-		this(imageWidth, imageHeight, DEFAULT_GRID_DIM, DEFAULT_GRID_DIM);
+		this(imageWidth, imageHeight, DEFAULT_GRID_DIM, DEFAULT_GRID_DIM, 0.0);
+	}
+
+	/** S3: build the map with a click-aware size tilt (see {@link #sizeClickBias}). Bias 0 is the legacy behavior. */
+	public GradientMap(int imageWidth, int imageHeight, double sizeClickBias) {
+		this(imageWidth, imageHeight, DEFAULT_GRID_DIM, DEFAULT_GRID_DIM, sizeClickBias);
 	}
 
 	public GradientMap(int imageWidth, int imageHeight, int gridWidth, int gridHeight) {
+		this(imageWidth, imageHeight, gridWidth, gridHeight, 0.0);
+	}
+
+	public GradientMap(int imageWidth, int imageHeight, int gridWidth, int gridHeight, double sizeClickBias) {
 		this.imageWidth = imageWidth;
 		this.imageHeight = imageHeight;
 		this.gridWidth = gridWidth;
@@ -55,6 +71,7 @@ public class GradientMap {
 		this.cellWidth = Math.max(1, (imageWidth + gridWidth - 1) / gridWidth);
 		this.cellHeight = Math.max(1, (imageHeight + gridHeight - 1) / gridHeight);
 		this.cellGradients = new float[gridWidth * gridHeight];
+		this.sizeClickBias = sizeClickBias;
 	}
 
 	/**
@@ -180,10 +197,14 @@ public class GradientMap {
 	}
 
 	/**
-	 * Precompute the cumulative size weights for every cell. Same expressions
-	 * and float accumulation order as the old per-call loop in
-	 * {@link #selectSizeIndex}, so the selection stays bit-identical:
-	 * high gradient favors small sizes, low gradient favors large ones.
+	 * Precompute the cumulative size weights for every cell. At {@code sizeClickBias == 0} this is the exact
+	 * expressions and float accumulation order of the old per-call loop in {@link #selectSizeIndex}, so the
+	 * selection stays bit-identical: high gradient favors small sizes, low gradient favors large ones.
+	 *
+	 * <p>With {@code sizeClickBias > 0} (S3/P1b) each size's weight is multiplied by {@code (SIZES[i]^2)^beta} before
+	 * accumulation — an area-per-click tilt toward larger blobs. The alternative calibration direction, if the beta
+	 * sweep loses (see docs/SPEED-QUALITY-PROPOSALS.md §7), is to soften the {@code -4.0} exponent toward {@code -2.0}
+	 * in high-gradient cells rather than tilt by area.
 	 */
 	private float[] buildCumulativeWeights(int numSizes) {
 		float[] table = new float[cellGradients.length * numSizes];
@@ -192,7 +213,12 @@ public class GradientMap {
 			float cumulative = 0;
 			for (int i = 0; i < numSizes; i++) {
 				float sizeNorm = (float) i / (numSizes - 1); // 0=smallest, 1=largest
-				cumulative += (float) Math.exp(-4.0 * Math.abs(sizeNorm - (1.0 - gradient)));
+				double weight = Math.exp(-4.0 * Math.abs(sizeNorm - (1.0 - gradient)));
+				if (sizeClickBias != 0) {
+					int d = BorstUtils.SIZES[i];
+					weight *= Math.pow((double) d * d, sizeClickBias);
+				}
+				cumulative += (float) weight;
 				table[cell * numSizes + i] = cumulative;
 			}
 		}

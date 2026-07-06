@@ -136,6 +136,66 @@ class AdaptiveSizeSelectionTest {
 			") than smooth area (" + smoothSmallCount + ")");
 	}
 
+	// ---- S3: click-aware size bias (sizeClickBias / P1b) ----
+
+	/** Build the standard sharp vertical-edge image (black left half, white right half). */
+	private static BorstImage sharpEdgeImage() {
+		BufferedImage img = new BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g = img.createGraphics();
+		g.setColor(Color.BLACK);
+		g.fillRect(0, 0, 64, 128);
+		g.setColor(Color.WHITE);
+		g.fillRect(64, 0, 64, 128);
+		g.dispose();
+		return new BorstImage(ensureArgb(img));
+	}
+
+	@Test
+	void biasZeroIsBitIdentical() {
+		// sizeClickBias=0 must reproduce the legacy weighting exactly: the legacy constructor and the explicit-0
+		// constructor produce identical selectSizeIndex sequences over 10k draws from equally-seeded Randoms.
+		BorstImage target = sharpEdgeImage();
+		GradientMap legacy = new GradientMap(128, 128);
+		GradientMap biasZero = new GradientMap(128, 128, 0.0);
+		legacy.compute(target);
+		biasZero.compute(target);
+
+		Random rndA = new Random(42);
+		Random rndB = new Random(42);
+		for (int i = 0; i < 10_000; i++) {
+			// sweep a few positions so both smooth and edge cells are exercised
+			int x = (i * 7) % 128;
+			int y = (i * 13) % 128;
+			assertEquals(legacy.selectSizeIndex(rndA, x, y), biasZero.selectSizeIndex(rndB, x, y),
+				"bias=0 must be bit-identical to legacy at draw " + i);
+		}
+	}
+
+	@Test
+	void biasShiftsSelectionTowardArea() {
+		// At an edge cell (which normally favors small sizes), a positive area-tilt must raise the mean selected
+		// size index — the whole point of the P1b knob.
+		BorstImage target = sharpEdgeImage();
+		GradientMap noBias = new GradientMap(128, 128, 0.0);
+		GradientMap withBias = new GradientMap(128, 128, 1.0);
+		noBias.compute(target);
+		withBias.compute(target);
+
+		Random rndA = new Random(7);
+		Random rndB = new Random(7);
+		int samples = 5000;
+		long sumNoBias = 0, sumWithBias = 0;
+		for (int i = 0; i < samples; i++) {
+			sumNoBias += noBias.selectSizeIndex(rndA, 64, 64);   // at the edge
+			sumWithBias += withBias.selectSizeIndex(rndB, 64, 64);
+		}
+		double meanNoBias = sumNoBias / (double) samples;
+		double meanWithBias = sumWithBias / (double) samples;
+		assertTrue(meanWithBias > meanNoBias,
+			"bias=1 should shift edge-cell selection toward larger sizes: meanWithBias=" + meanWithBias
+				+ " vs meanNoBias=" + meanNoBias);
+	}
+
 	// ---- End-to-end: adaptive vs uniform sizing ----
 
 	@Test

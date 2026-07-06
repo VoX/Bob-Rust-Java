@@ -60,7 +60,9 @@ public class Model {
 		// case). Build + resolve the auto floor BEFORE the Worker, which reads the resolved minAlphaIndex.
 		GradientMap gradientMap = null;
 		if (config.useAdaptiveSize() || config.minAlphaIndex() == GeneratorConfig.MIN_ALPHA_AUTO) {
-			gradientMap = new GradientMap(w, h);
+			// sizeClickBias only tilts selection when the map is attached to the worker (adaptiveSize=true); it is
+			// inert on the stats-only auto-alpha path, so passing it unconditionally is harmless.
+			gradientMap = new GradientMap(w, h, config.sizeClickBias());
 			gradientMap.compute(target);
 		}
 		if (config.minAlphaIndex() == GeneratorConfig.MIN_ALPHA_AUTO) {

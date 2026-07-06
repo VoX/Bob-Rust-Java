@@ -22,6 +22,7 @@ class GeneratorConfigTest {
 		assertFalse(config.useSimulatedAnnealing(), "G1: classic hill climb is the default");
 		assertTrue(config.useErrorGuidedPlacement());
 		assertFalse(config.useAdaptiveSize(), "P1: adaptive size loses at a click budget -- see SPEED-QUALITY-PROPOSALS.md");
+		assertEquals(0.0, config.sizeClickBias(), "P1b: click-aware size bias is a dormant knob (off by default)");
 		assertTrue(config.useBatchParallel());
 		assertTrue(config.useProxyRanking(), "G2: proxy candidate ranking is the default");
 		assertTrue(config.usePerceptualColor(), "Q1: perceptual color metric is the default");
@@ -35,8 +36,23 @@ class GeneratorConfigTest {
 	void serializeParseRoundTrips() {
 		assertEquals(GeneratorConfig.DEFAULT, GeneratorConfig.parse(GeneratorConfig.DEFAULT.serialize()));
 
-		GeneratorConfig custom = new GeneratorConfig(42L, false, false, true, false, false, true, true, 3, 750, 50);
+		GeneratorConfig custom = new GeneratorConfig(42L, false, false, true, 0.5, false, false, true, true, 3, 750, 50);
 		assertEquals(custom, GeneratorConfig.parse(custom.serialize()));
+	}
+
+	@Test
+	void sizeClickBiasParsesRoundTripsAndValidates() {
+		// S3: the dormant sizeBias knob round-trips through serialize, malformed/out-of-range keeps the default,
+		// and the setter enforces the [0, 2] range.
+		GeneratorConfig cfg = GeneratorConfig.parse("sizeBias=0.5");
+		assertEquals(0.5, cfg.sizeClickBias());
+		assertEquals(0.5, GeneratorConfig.parse(cfg.serialize()).sizeClickBias(), "sizeBias round-trips through serialize");
+		assertEquals(GeneratorConfig.DEFAULT.sizeClickBias(), GeneratorConfig.parse("sizeBias=abc").sizeClickBias(),
+			"unparseable sizeBias keeps default");
+		assertEquals(GeneratorConfig.DEFAULT.sizeClickBias(), GeneratorConfig.parse("sizeBias=-1").sizeClickBias(),
+			"out-of-range sizeBias keeps default");
+		assertThrows(IllegalArgumentException.class, () -> GeneratorConfig.DEFAULT.withSizeClickBias(3));
+		assertThrows(IllegalArgumentException.class, () -> GeneratorConfig.DEFAULT.withSizeClickBias(Double.NaN));
 	}
 
 	@Test
