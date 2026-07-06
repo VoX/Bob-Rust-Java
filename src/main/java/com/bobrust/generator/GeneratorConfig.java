@@ -48,6 +48,10 @@ public record GeneratorConfig(
 		100
 	);
 
+	/** Sentinel for {@code minAlphaIndex}: resolve the alpha floor per image from the target's edge statistics
+	 *  (GradientMap hardEdgeFraction) in the Model constructor. Never reaches Worker/Circle unresolved. */
+	public static final int MIN_ALPHA_AUTO = -1;
+
 	public GeneratorConfig {
 		if (maxRandomStates < 1) {
 			throw new IllegalArgumentException("maxRandomStates must be >= 1: " + maxRandomStates);
@@ -55,8 +59,8 @@ public record GeneratorConfig(
 		if (age < 1) {
 			throw new IllegalArgumentException("age must be >= 1: " + age);
 		}
-		if (minAlphaIndex < 0 || minAlphaIndex >= BorstUtils.ALPHAS.length) {
-			throw new IllegalArgumentException("minAlphaIndex must be in [0, " + (BorstUtils.ALPHAS.length - 1) + "]: " + minAlphaIndex);
+		if (minAlphaIndex != MIN_ALPHA_AUTO && (minAlphaIndex < 0 || minAlphaIndex >= BorstUtils.ALPHAS.length)) {
+			throw new IllegalArgumentException("minAlphaIndex must be in [0, " + (BorstUtils.ALPHAS.length - 1) + "] or MIN_ALPHA_AUTO (-1): " + minAlphaIndex);
 		}
 	}
 

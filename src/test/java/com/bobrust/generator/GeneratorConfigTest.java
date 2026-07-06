@@ -121,6 +121,18 @@ class GeneratorConfigTest {
 		assertNotNull(adaptiveModel.getWorker().getGradientMap(), "adaptiveSize=true rebuilds the gradient map");
 	}
 
+	@Test
+	void autoMinAlphaSentinelParsesRoundTripsAndValidates() {
+		// S2: minAlpha=-1 (MIN_ALPHA_AUTO) is accepted, survives serialize -> parse, and out-of-range still throws.
+		GeneratorConfig cfg = GeneratorConfig.parse("minAlpha=-1");
+		assertEquals(GeneratorConfig.MIN_ALPHA_AUTO, cfg.minAlphaIndex());
+		GeneratorConfig round = GeneratorConfig.parse(cfg.serialize());
+		assertEquals(GeneratorConfig.MIN_ALPHA_AUTO, round.minAlphaIndex(), "auto sentinel round-trips through serialize");
+		assertDoesNotThrow(() -> GeneratorConfig.DEFAULT.withMinAlphaIndex(GeneratorConfig.MIN_ALPHA_AUTO));
+		assertThrows(IllegalArgumentException.class, () -> GeneratorConfig.DEFAULT.withMinAlphaIndex(-2));
+		assertThrows(IllegalArgumentException.class, () -> GeneratorConfig.DEFAULT.withMinAlphaIndex(6));
+	}
+
 	private static BufferedImage testImage() {
 		BufferedImage img = new BufferedImage(96, 96, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = img.createGraphics();

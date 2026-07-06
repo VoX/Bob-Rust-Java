@@ -42,6 +42,11 @@ class Worker {
 	}
 
 	public Worker(BorstImage target, int alpha, GeneratorConfig config) {
+		// The MIN_ALPHA_AUTO sentinel must be resolved by Model before it reaches here; an unresolved -1 would
+		// silently widen the per-shape alpha range (rnd.nextInt(ALPHAS.length - (-1))). Fail loudly instead.
+		if (config.minAlphaIndex() < 0) {
+			throw new IllegalArgumentException("unresolved auto minAlpha reached Worker: " + config.minAlphaIndex());
+		}
 		this.w = target.width;
 		this.h = target.height;
 		this.target = target;

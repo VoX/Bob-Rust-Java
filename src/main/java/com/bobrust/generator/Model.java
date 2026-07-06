@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import com.bobrust.util.data.AppConstants;
+
 /**
  * Internal representation of the approximation model
  */
@@ -54,6 +56,19 @@ public class Model {
 		this.target = target;
 		this.width = w;
 		this.height = h;
+		// The gradient map is needed if adaptive size is on OR the alpha floor is auto (stats-only in the latter
+		// case). Build + resolve the auto floor BEFORE the Worker, which reads the resolved minAlphaIndex.
+		GradientMap gradientMap = null;
+		if (config.useAdaptiveSize() || config.minAlphaIndex() == GeneratorConfig.MIN_ALPHA_AUTO) {
+			gradientMap = new GradientMap(w, h);
+			gradientMap.compute(target);
+		}
+		if (config.minAlphaIndex() == GeneratorConfig.MIN_ALPHA_AUTO) {
+			int resolved = resolveAutoMinAlpha(gradientMap);
+			AppConstants.LOGGER.info("Auto alpha floor: hardEdgeFraction={} -> minAlphaIndex={}",
+				String.format("%.4f", gradientMap.getHardEdgeFraction()), resolved);
+			config = config.withMinAlphaIndex(resolved);
+		}
 		this.config = config;
 
 		this.current = new BorstImage(w, h);
@@ -62,7 +77,7 @@ public class Model {
 
 		this.totalError = BorstCore.differenceFullTotal(target, current, config.usePerceptualColor());
 		this.score = BorstCore.scoreFromTotal(totalError, w, h, config.usePerceptualColor());
-		this.worker = new Worker(target, alpha, config);
+		this.worker = new Worker(target, alpha, config);   // sees the RESOLVED config
 		this.alpha = alpha;
 
 		// Initialize error map if error-guided placement is enabled
@@ -72,12 +87,25 @@ public class Model {
 			this.worker.setErrorMap(this.errorMap);
 		}
 
-		// Initialize gradient map if adaptive size selection is enabled
+		// Attach the gradient map to the worker ONLY when adaptive size is on. When it was built stats-only for
+		// the auto alpha floor it must NOT drive size selection (that stays uniform, per S1).
 		if (config.useAdaptiveSize()) {
-			this.gradientMap = new GradientMap(w, h);
-			this.gradientMap.compute(target);
+			this.gradientMap = gradientMap;
 			this.worker.setGradientMap(this.gradientMap);
 		}
+	}
+
+	/** Fraction of hard-edge pixels at/above which glazing (alpha floor 0) hurts; below it, photographic content
+	 *  benefits from the extra translucency. Calibrated on the 5-image corpus (AutoAlphaContentStatsTest): with
+	 *  HARD_EDGE_MAGNITUDE=500 the corpus measured texture 0.000 / portrait 0.004 (smooth) vs mosaic 0.034 /
+	 *  glyphs 0.196 (edgy); 0.01 sits >=2x clear of the closest of each class. */
+	static final float AUTO_ALPHA_EDGE_THRESHOLD = 0.01f;
+
+	/** Resolve the {@link GeneratorConfig#MIN_ALPHA_AUTO} sentinel: hard-edge/text content keeps the shipped floor
+	 *  ({@link AppConstants#MIN_ALPHA_INDEX}), photographic content drops to 0 for glazing. Never returns opaque —
+	 *  stencil mode is explicit-only. */
+	static int resolveAutoMinAlpha(GradientMap map) {
+		return map.getHardEdgeFraction() >= AUTO_ALPHA_EDGE_THRESHOLD ? AppConstants.MIN_ALPHA_INDEX : 0;
 	}
 
 	/**

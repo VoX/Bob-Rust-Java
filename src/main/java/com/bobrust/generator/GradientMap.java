@@ -14,6 +14,9 @@ import java.util.Random;
  */
 public class GradientMap {
 	private static final int DEFAULT_GRID_DIM = 32;
+	/** Raw (pre-normalization) Sobel magnitude that counts as a "hard edge". A full-contrast 0->255 step is
+	 *  ~1020 (4*255); ~500 is about half a full-contrast step. Calibrated by AutoAlphaContentStatsTest. */
+	static final float HARD_EDGE_MAGNITUDE = 500f;
 
 	final int gridWidth;
 	final int gridHeight;
@@ -24,6 +27,11 @@ public class GradientMap {
 
 	/** Normalized gradient values per grid cell, range [0,1]. */
 	final float[] cellGradients;
+
+	/** Fraction of interior pixels whose RAW Sobel magnitude exceeds {@link #HARD_EDGE_MAGNITUDE}. Content
+	 *  classifier signal — survives the per-image normalization that {@link #cellGradients} discards. Set by
+	 *  {@link #compute}. */
+	private float hardEdgeFraction;
 
 	/**
 	 * Lazily built per-cell cumulative size weights for
@@ -70,6 +78,7 @@ public class GradientMap {
 		// Compute Sobel gradient magnitude per pixel, accumulate into grid cells
 		float[] cellSums = new float[gridWidth * gridHeight];
 		int[] cellCounts = new int[gridWidth * gridHeight];
+		int hardEdgeCount = 0, interiorPixels = 0;
 
 		for (int y = 1; y < h - 1; y++) {
 			int gy = Math.min(y / cellHeight, gridHeight - 1);
@@ -86,12 +95,16 @@ public class GradientMap {
 						 + gray[(y + 1) * w + (x - 1)]  + 2 * gray[(y + 1) * w + x] + gray[(y + 1) * w + (x + 1)];
 
 				float magnitude = (float) Math.sqrt(sx * sx + sy * sy);
+				interiorPixels++;
+				if (magnitude > HARD_EDGE_MAGNITUDE) hardEdgeCount++;
 
 				int cellIdx = gy * gridWidth + gx;
 				cellSums[cellIdx] += magnitude;
 				cellCounts[cellIdx]++;
 			}
 		}
+
+		hardEdgeFraction = interiorPixels > 0 ? hardEdgeCount / (float) interiorPixels : 0f;
 
 		// Compute average gradient per cell
 		float maxGradient = 0;
@@ -113,6 +126,12 @@ public class GradientMap {
 
 		// Cell gradients changed — rebuild the size-weight table on next use
 		cumulativeWeights = null;
+	}
+
+	/** Fraction of interior pixels that are hard edges (raw Sobel magnitude &gt; {@link #HARD_EDGE_MAGNITUDE}),
+	 *  after {@link #compute}. Used to classify photographic vs hard-edge/text content for the auto alpha floor. */
+	public float getHardEdgeFraction() {
+		return hardEdgeFraction;
 	}
 
 	/**
