@@ -129,7 +129,8 @@ class ProxyRankingTest {
 			model.processStep();
 		}
 
-		assertEquals(BorstCore.differenceFullTotal(target, model.current), model.getTotalError(),
+		assertEquals(BorstCore.differenceFullTotal(target, model.current,
+				GeneratorConfig.DEFAULT.usePerceptualColor()), model.getTotalError(),
 			"proxy ranking must not leak into the committed exact total");
 		assertFalse(Float.isNaN(model.getScore()));
 	}
@@ -149,15 +150,19 @@ class ProxyRankingTest {
 			model.processStep();
 		}
 
+		// Replay with the same per-shape alpha and color metric the model used,
+		// so this test stays valid whichever Q1/Q2 defaults ship.
+		GeneratorConfig config = GeneratorConfig.DEFAULT;
 		BorstImage replay = new BorstImage(target.width, target.height);
 		Arrays.fill(replay.pixels, BACKGROUND);
 		for (int i = 0; i < model.shapes.size(); i++) {
 			Circle shape = model.shapes.get(i);
+			int alpha = config.usePerShapeAlpha() ? BorstUtils.ALPHAS[shape.alphaIndex] : ALPHA;
 			int cacheIndex = BorstUtils.getClosestSizeIndex(shape.r);
-			BorstColor recomputed = BorstCore.computeColor(target, replay, ALPHA, cacheIndex, shape.x, shape.y);
+			BorstColor recomputed = BorstCore.computeColor(target, replay, alpha, cacheIndex, shape.x, shape.y, config.usePerceptualColor());
 			assertSame(model.colors.get(i), recomputed,
 				"shape " + i + ": cached winner color must equal a fresh computeColor");
-			BorstCore.drawLines(replay, recomputed, ALPHA, cacheIndex, shape.x, shape.y);
+			BorstCore.drawLines(replay, recomputed, alpha, cacheIndex, shape.x, shape.y);
 		}
 
 		assertArrayEquals(model.current.pixels, replay.pixels,

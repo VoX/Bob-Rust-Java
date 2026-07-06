@@ -190,7 +190,7 @@ public class BorstSorter {
 		int i = 0;
 		while(++i < array.length) {
 			Blob last = out[i - 1];
-			int index = find_best_fast_cache(last.sizeIndex, last.colorIndex, start, cache, array, map);
+			int index = find_best_fast_cache(last, start, cache, array, map);
 			out[i] = array[index].blob;
 			array[index] = null;
 
@@ -205,71 +205,79 @@ public class BorstSorter {
 		return out;
 	}
 	
+	// The painter pays one control click per size / color / alpha / shape
+	// change between consecutive blobs, so the greedy next-blob cache is keyed
+	// on all four dimensions (Q2 made alpha vary per blob; shape is future
+	// proofing for P11): list_all = zero control changes, list_either = exactly
+	// one. With a single alpha and shape in the data this degenerates to the
+	// old (size, color) behavior.
+	private static final int SHAPE_TYPES = 4; // Blob.shapeIndex domain: 0..3
+
+	private static int cacheKey(int size, int color, int alpha, int shape) {
+		final int sizeLen = BorstUtils.SIZES.length;
+		final int alphaLen = BorstUtils.ALPHAS.length;
+		return ((color * sizeLen + size) * alphaLen + alpha) * SHAPE_TYPES + shape;
+	}
+
 	// Takes 36 ms for 60000 shapes
 	private static IntList[][] create_cache(Piece[] array) {
-		// 6 sizes * 20 colors
 		final int colorLen = BorstUtils.COLORS.length;
 		final int sizeLen = BorstUtils.SIZES.length;
-		IntList[] list_all = new IntList[sizeLen * colorLen];
-		IntList[] list_either = new IntList[sizeLen * colorLen];
-		
+		final int alphaLen = BorstUtils.ALPHAS.length;
+		final int tableLen = colorLen * sizeLen * alphaLen * SHAPE_TYPES;
+		IntList[] list_all = new IntList[tableLen];
+		IntList[] list_either = new IntList[tableLen];
+
 		for(Piece piece : array) {
 			if(piece == null) continue;
-			
+
 			int color = piece.blob.colorIndex;
 			int size = piece.blob.sizeIndex;
-			
-			/* all */ {
-				IntList list = list_all[size + color * 6];
-				if(list == null) {
-					list_all[size + color * 6] = (list = new IntList());
-				}
-				
-				list.add(piece.index);
+			int alpha = piece.blob.alphaIndex;
+			int shape = piece.blob.shapeIndex;
+
+			/* all — exact (size, color, alpha, shape) match */ {
+				addToCache(list_all, cacheKey(size, color, alpha, shape), piece.index);
 			}
-			
-			/* either */ {
-				
-				for(int i = 0; i < colorLen; i++) {
-					// Colors is the X axis and has the upper value
-					// Sizes is the Y axis and has the lowest value
-					
-					if(i == color) {
-						// Add all the colors
-						for(int j = 0; j < sizeLen; j++) {
-							if(j == size) continue;
-							
-							IntList list = list_either[j + color * 6];
-							if(list == null) {
-								list_either[j + color * 6] = (list = new IntList());
-							}
-							
-							list.add(piece.index);
-						}
-					} else {
-						IntList list = list_either[size + i * 6];
-						if(list == null) {
-							list_either[size + i * 6] = (list = new IntList());
-						}
-						
-						list.add(piece.index);
-					}
+
+			/* either — differs from the key in exactly one dimension */ {
+				for(int j = 0; j < sizeLen; j++) {
+					if(j != size) addToCache(list_either, cacheKey(j, color, alpha, shape), piece.index);
+				}
+				for(int j = 0; j < colorLen; j++) {
+					if(j != color) addToCache(list_either, cacheKey(size, j, alpha, shape), piece.index);
+				}
+				for(int j = 0; j < alphaLen; j++) {
+					if(j != alpha) addToCache(list_either, cacheKey(size, color, j, shape), piece.index);
+				}
+				for(int j = 0; j < SHAPE_TYPES; j++) {
+					if(j != shape) addToCache(list_either, cacheKey(size, color, alpha, j), piece.index);
 				}
 			}
 		}
-		
+
 		// Make sure we do not have any null values
 		for(int i = 0; i < list_all.length; i++) {
 			if(list_all[i] == null) list_all[i] = IntList.emptyList();
 			if(list_either[i] == null) list_either[i] = IntList.emptyList();
 		}
-		
+
 		return new IntList[][] { list_all, list_either };
 	}
-	
-	private static int find_best_fast_cache(int size, int color, int first_non_null_index, IntList[][] cache, Piece[] array, IntList[] map) {
+
+	private static void addToCache(IntList[] table, int key, int index) {
+		IntList list = table[key];
+		if(list == null) {
+			table[key] = (list = new IntList());
+		}
+
+		list.add(index);
+	}
+
+	private static int find_best_fast_cache(Blob last, int first_non_null_index, IntList[][] cache, Piece[] array, IntList[] map) {
+		final int key = cacheKey(last.sizeIndex, last.colorIndex, last.alphaIndex, last.shapeIndex);
 		for(int type = 0; type < 2; type++) {
-			IntList list = cache[type][size + color * 6];
+			IntList list = cache[type][key];
 			for(int i = 0; i < list.size(); i++) {
 				Piece p = array[list.get(i)];
 				if(p == null) {

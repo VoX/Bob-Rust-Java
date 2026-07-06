@@ -16,6 +16,14 @@ class Worker {
 	private final Random random;
 	private BorstImage current;
 	public final int alpha;
+	/**
+	 * Palette index closest to {@link #alpha} — the per-shape alpha the shapes
+	 * pin themselves to while {@link GeneratorConfig#usePerShapeAlpha()} is
+	 * off. Note {@code alpha} itself may not be a palette value (callers can
+	 * pass any int), which is why the off-path keeps using {@code alpha}
+	 * verbatim — see {@link #alphaFor(Circle)}.
+	 */
+	public final int alphaIndex;
 
 	public final int w;
 	public final int h;
@@ -38,8 +46,18 @@ class Worker {
 		this.h = target.height;
 		this.target = target;
 		this.alpha = alpha;
+		this.alphaIndex = BorstUtils.getClosestAlphaIndex(alpha);
 		this.config = config;
 		this.random = new Random(config.seed());
+	}
+
+	/**
+	 * The alpha value to evaluate/commit {@code circle} with: the shape's own
+	 * palette alpha when per-shape alpha (Q2) is on, else the single global
+	 * alpha — exactly the pre-Q2 behavior, including non-palette values.
+	 */
+	public int alphaFor(Circle circle) {
+		return config.usePerShapeAlpha() ? BorstUtils.ALPHAS[circle.alphaIndex] : alpha;
 	}
 
 	/** Returns the runtime generator configuration this worker was created with. */
@@ -95,17 +113,18 @@ class Worker {
 	public float getEnergy(Circle circle, BorstColor[] colorOut) {
 		this.counter.increment();
 		int cache_index = BorstUtils.getClosestSizeIndex(circle.r);
-		return BorstCore.differencePartialThread(target, current, totalError, alpha, cache_index, circle.x, circle.y, config.useBatchParallel(), colorOut);
+		return BorstCore.differencePartialThread(target, current, totalError, alphaFor(circle), cache_index, circle.x, circle.y, config.useBatchParallel(), config.usePerceptualColor(), colorOut);
 	}
 
 	/**
 	 * Approximate energy on a strided pixel subset — used ONLY to rank the
 	 * per-step random candidates against each other. The winning candidate is
-	 * always re-evaluated exactly before refinement and commit.
+	 * always re-evaluated exactly before refinement and commit. Shares the
+	 * exact kernels' alpha (per-shape when Q2 is on) and color metric (Q1).
 	 */
 	public float getProxyEnergy(Circle circle) {
 		int cache_index = BorstUtils.getClosestSizeIndex(circle.r);
-		return BorstCore.differencePartialProxy(target, current, totalError, alpha, cache_index, circle.x, circle.y);
+		return BorstCore.differencePartialProxy(target, current, totalError, alphaFor(circle), cache_index, circle.x, circle.y, config.usePerceptualColor());
 	}
 
 	public int getCounter() {

@@ -9,9 +9,12 @@ import com.bobrust.generator.BorstImage;
  * target image against a rendered result and reports RMSE, SSIM and the mean
  * CIEDE2000 (ΔE00) in one pass.
  *
- * <p>{@code rmse} uses exactly the generator's score definition —
+ * <p>{@code rmse} uses exactly the generator's classic score definition —
  * {@code sqrt(sum(dR² + dG² + dB² + dA²) / (w * h * 4)) / 255} — so it is
- * directly comparable to {@code Model.getScore()}.
+ * directly comparable to {@code Model.getScore()} when the generator runs the
+ * uniform metric ({@code perceptual=false}). Under Q1's channel-weighted
+ * metric the generator score is intentionally weighted; this RMSE stays
+ * unweighted so benchmark columns remain comparable across configs.
  */
 public final class ImageMetrics {
 	/**

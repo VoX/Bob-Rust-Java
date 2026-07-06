@@ -56,6 +56,37 @@ public interface AppConstants {
 	// geometry, color and running score are unaffected (ProxyRankingTest).
 	boolean USE_PROXY_RANKING = true;
 
+	// Q1: when true, the generator objective and the palette snap both use the
+	// channel-weighted perceptual RGB metric (BorstUtils.PERCEPTUAL_WEIGHT_*)
+	// instead of uniform RGB. Snap and energy share ONE metric by construction
+	// (PerceptualColorTest) — never enable one side without the other.
+	// F1-measured on top of per-shape alpha (300/800 shapes): corpus dE00
+	// -3.5%/-1.2%, SSIM +1.6%/+1.2% (photo_detail SSIM +12%/+5%), at ~1.3-1.4x
+	// generation wall — same trade Phase G accepted when it kept age=100.
+	boolean USE_PERCEPTUAL_COLOR = true;
+
+	// Q2: when true, each candidate shape searches its own alpha in
+	// [MIN_ALPHA_INDEX, 5] instead of inheriting the single global alpha
+	// setting. The downstream pipeline (Blob, sorter, painter alpha clicks)
+	// always supported per-shape alpha; this unlocks the generator side.
+	// F1-measured vs the single-alpha default: corpus dE00 -28%/-35% at
+	// 300/800 shapes (edges: dE00 7.40 -> 0.62 at 800), SSIM up on every hard
+	// image, AND ~25% faster (opaque stamps converge better). NOTE: the
+	// PAINTED-sign gain is partly hostage to P9 calibration — low alpha is
+	// where the uncalibrated blend model is least trustworthy; the sim-space
+	// numbers above are the honest claim until P9 lands.
+	boolean USE_PER_SHAPE_ALPHA = true;
+
+	// Floor for the per-shape alpha search (index into BorstUtils.ALPHAS).
+	// Very low alphas need many layered stamps to move a pixel, ballooning
+	// shape counts (= paint time), and are where the uncalibrated blend model
+	// is least trustworthy until P9 lands. F1-measured: floor 1 (alpha 48)
+	// beats floor 2 by -8%/-16% corpus dE00 at 300/800 shapes and fixes the
+	// smooth-image regressions; floor 0 (alpha 23) gains another ~3% on
+	// trivial synthetics but regresses edges +11% and lives in the least
+	// calibrated blend regime — kept config-reachable, not default.
+	int MIN_ALPHA_INDEX = 1;
+
 	// DISABLED: 2-opt reorders blobs on palette+travel cost with no awareness of
 	// the sorter's overlap-precedence invariant (a blob may only be painted after
 	// every earlier-generated blob it overlaps). Reversing a segment can swap two

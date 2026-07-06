@@ -66,7 +66,10 @@ class State {
 	}
 
 	public State getCopy() {
-		Circle shape_cope = new Circle(worker, shape.x, shape.y, shape.r);
+		// Copy EVERY searched field: x/y/r/alphaIndex plus the memoized
+		// score/color pair. Dropping any of them silently corrupts the
+		// hill-climb undo (the Q2 review flagged alphaIndex here explicitly).
+		Circle shape_cope = new Circle(worker, shape.x, shape.y, shape.r, shape.alphaIndex);
 		State copy = new State(worker, shape_cope, score);
 		copy.color = color;
 		return copy;

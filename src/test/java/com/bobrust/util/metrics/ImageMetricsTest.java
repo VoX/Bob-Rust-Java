@@ -46,7 +46,11 @@ class ImageMetricsTest {
 	@Test
 	void rmseAgreesWithModelScore() {
 		BorstImage target = new BorstImage(testImage());
-		Model model = new Model(target, 0xFFFFFFFF, 128);
+		// The RMSE == generator-score identity is defined for the uniform
+		// energy metric; under Q1's weighted metric the generator score is
+		// intentionally weighted and no longer equals plain RMSE.
+		Model model = new Model(target, 0xFFFFFFFF, 128,
+			com.bobrust.generator.GeneratorConfig.DEFAULT.withUsePerceptualColor(false));
 		for (int i = 0; i < 5; i++) {
 			model.processStep();
 		}

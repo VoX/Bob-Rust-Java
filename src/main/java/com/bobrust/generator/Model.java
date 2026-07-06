@@ -49,8 +49,8 @@ public class Model {
 		Arrays.fill(this.current.pixels, backgroundRGB);
 		this.beforeImage = new BorstImage(w, h);
 
-		this.totalError = BorstCore.differenceFullTotal(target, current);
-		this.score = BorstCore.scoreFromTotal(totalError, w, h);
+		this.totalError = BorstCore.differenceFullTotal(target, current, config.usePerceptualColor());
+		this.score = BorstCore.scoreFromTotal(totalError, w, h, config.usePerceptualColor());
 		this.worker = new Worker(target, alpha, config);
 		this.alpha = alpha;
 
@@ -78,14 +78,16 @@ public class Model {
 	private void addShape(Circle shape, BorstColor knownColor) {
 		beforeImage.draw(current);
 
+		final boolean perceptual = config.usePerceptualColor();
+		final int shapeAlpha = worker.alphaFor(shape);
 		int cache_index = BorstUtils.getClosestSizeIndex(shape.r);
 		BorstColor color = (knownColor != null)
 			? knownColor
-			: BorstCore.computeColor(target, current, alpha, cache_index, shape.x, shape.y);
+			: BorstCore.computeColor(target, current, shapeAlpha, cache_index, shape.x, shape.y, perceptual);
 
-		BorstCore.drawLines(current, color, alpha, cache_index, shape.x, shape.y);
-		this.totalError = BorstCore.differencePartialTotal(target, beforeImage, current, totalError, cache_index, shape.x, shape.y);
-		this.score = BorstCore.scoreFromTotal(totalError, width, height);
+		BorstCore.drawLines(current, color, shapeAlpha, cache_index, shape.x, shape.y);
+		this.totalError = BorstCore.differencePartialTotal(target, beforeImage, current, totalError, cache_index, shape.x, shape.y, perceptual);
+		this.score = BorstCore.scoreFromTotal(totalError, width, height, perceptual);
 		shapes.add(shape);
 		colors.add(color);
 
@@ -116,6 +118,11 @@ public class Model {
 	/** Package-private accessor for the worker (used by MultiResModel). */
 	Worker getWorker() {
 		return worker;
+	}
+
+	/** The runtime generator configuration (used by BorstData for per-shape alpha). */
+	GeneratorConfig getConfig() {
+		return config;
 	}
 
 	// max_random_states and age moved to GeneratorConfig

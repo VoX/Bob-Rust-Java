@@ -28,7 +28,12 @@ class SimulatedAnnealingBenchmark {
 		// Ensure the image has TYPE_INT_ARGB so DataBufferInt works
 		BufferedImage argbImage = ensureArgb(testImage);
 		BorstImage target = new BorstImage(argbImage);
-		Model model = new Model(target, BACKGROUND, ALPHA);
+		// This benchmark compares SA vs HC in the search space they were tuned
+		// against (single global alpha, uniform metric); the Q1/Q2 defaults
+		// change that space and are exercised by their own tests.
+		Model model = new Model(target, BACKGROUND, ALPHA, GeneratorConfig.DEFAULT
+			.withUsePerShapeAlpha(false)
+			.withUsePerceptualColor(false));
 
 		// Temporarily override the SA flag by calling the appropriate method directly
 		for (int i = 0; i < maxShapes; i++) {

@@ -24,6 +24,9 @@ class GeneratorConfigTest {
 		assertTrue(config.useAdaptiveSize());
 		assertTrue(config.useBatchParallel());
 		assertTrue(config.useProxyRanking(), "G2: proxy candidate ranking is the default");
+		assertTrue(config.usePerceptualColor(), "Q1: perceptual color metric is the default");
+		assertTrue(config.usePerShapeAlpha(), "Q2: per-shape alpha search is the default");
+		assertEquals(1, config.minAlphaIndex(), "Q2: harness-validated alpha floor");
 		assertEquals(500, config.maxRandomStates(), "G3: harness-validated candidate count");
 		assertEquals(100, config.age());
 	}
@@ -32,7 +35,7 @@ class GeneratorConfigTest {
 	void serializeParseRoundTrips() {
 		assertEquals(GeneratorConfig.DEFAULT, GeneratorConfig.parse(GeneratorConfig.DEFAULT.serialize()));
 
-		GeneratorConfig custom = new GeneratorConfig(42L, false, false, true, false, false, 750, 50);
+		GeneratorConfig custom = new GeneratorConfig(42L, false, false, true, false, false, true, true, 3, 750, 50);
 		assertEquals(custom, GeneratorConfig.parse(custom.serialize()));
 	}
 

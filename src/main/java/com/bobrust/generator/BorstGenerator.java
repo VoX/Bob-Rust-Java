@@ -222,7 +222,11 @@ public class BorstGenerator {
 		
 		private synchronized void update(Model model, int index) {
 			this.index = index;
-			
+
+			// Per-shape alpha (Q2): each committed shape carries its own alpha
+			// index; with the flag off the single global alpha applies as before.
+			boolean perShapeAlpha = model.getConfig().usePerShapeAlpha();
+
 			// For all new elements
 			var shapes = model.shapes;
 			var colors = model.colors;
@@ -234,7 +238,7 @@ public class BorstGenerator {
 					shape.y,
 					shape.r,
 					color.rgb,
-					model.alpha,
+					perShapeAlpha ? BorstUtils.ALPHAS[shape.alphaIndex] : model.alpha,
 					AppConstants.CIRCLE_SHAPE
 				));
 			}

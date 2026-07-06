@@ -67,9 +67,18 @@ Phase 6), `PAINT_THRESHOLD`, GradientMap max-normalization caveat.
   `age` stays 100: 50 measured 1.78× faster but −1.9% SSIM / +1.9% ΔE00
   aggregate, outside the seed-noise band (a speed preset can set it later).
 
-**NOT done — the remaining work** (§3 below): all quality / paint-speed /
-robustness / packaging features (Q1+, S1+, C1, R1, …) and the deferred G5
-parallel-refine item.
+- ✅ **Phase Q quality (Q1+Q2)** — the coordinated `BorstCore` hot-loop
+  rewrite, measured on the F1 corpus. New defaults
+  (`perceptual=true;shapeAlpha=true;minAlpha=1`) vs the Phase-G defaults:
+  **corpus ΔE00 −30.5% at 300 shapes and −36% at 800**, SSIM up on 4/5
+  images (photo_detail +38% at 300), RMSE down on all five, and net
+  *faster* (per-shape alpha's convergence win outweighs the weighted
+  kernels' cost). Flags-off remains bit-identical to pre-Q (verified by
+  pixel hash). Honest caveat: the *painted-sign* share of the per-shape
+  alpha gain is partly hostage to P9 calibration (see Q2 below).
+
+**NOT done — the remaining work** (§3 below): paint-speed / robustness /
+packaging features (S1+, C1, R1, …) and the deferred G5 parallel-refine item.
 
 ---
 
@@ -185,29 +194,46 @@ config, at hard-image quality parity. Larger targets clip less, so real
 sign-size images should sit at or above the plan's 4–6× band. 250 candidates
 and age=50 did NOT validate at parity — both stay config-reachable.*
 
-### Phase 2 — Quality (the coordinated `BorstCore` rewrite begins)
+### Phase 2 — Quality ✅ DONE (the coordinated `BorstCore` rewrite, one commit)
 
-- **Q1 — P8a+P8b perceptual color: OKLab palette snap + channel-weighted
-  energy. NEXT, S, deps: F1 (to prove it), G2 (proxy kernel must get the same
-  weights in the same commit).** Cheapest quality win, no external deps.
-  **Required correction stands:** the snap distance in `getClosestColor` must
-  use the *same weights as the energy* or ranking and snapping disagree,
-  reintroducing the discrete-suboptimality the optimal-color-then-snap design
-  avoids. 8c (dithering) stays flagged/LOW.
-  *Success: F1 shows ΔE00 improvement at equal shape count; snap and energy
-  provably share one metric (unit test).*
-- **Q2 — P7 per-shape alpha optimization. NEXT, M, deps: Q1 ordering only;
-  payoff multiplier is Phase 4.** Biggest untapped quality lever; the whole
-  downstream pipeline already carries per-shape alpha — only the generator is
-  locked (4 lock points: `Circle` alpha field, `Worker.getEnergy`,
-  `Model.alpha`, `BorstData.update`). Watch items stand: extend the sorter
-  cache key to `(size,color,alpha,shape)` (shared with P11); thread
-  `alphaIndex` through `State.getCopy`/`Circle.fromValues` (currently drops
-  it → undo/determinism bug); floor `minAlphaIndex`. **Correction stands:**
-  sim may improve 10–25% while the *painted sign* improves less until P9
-  calibrates the low-alpha blend.
-  *Success: F1 sim score/SSIM improve ≥10% at equal shape count,
-  determinism test still green.*
+- **Q1 — P8a+P8b perceptual color: channel-weighted snap + energy. ✅ DONE,
+  S.** Shipped as channel-weighted RGB (2:4:3, alpha 3) — **not** OKLab: the
+  snap metric must equal the energy metric (the required correction), and an
+  OKLab snap over a per-pixel RGB energy would break exactly that, while an
+  OKLab energy is infeasible in the hot kernels. Per-channel diagonal weights
+  keep `computeColor`'s per-channel continuous optimum weight-invariant and
+  make weighted-nearest-palette the exact discrete optimum (the energy is
+  `E(p) = E(c*) + K·Σ w_c (p_c − c*_c)²`), so the optimal-color-then-snap
+  guarantee survives. One metric everywhere in the same commit: weighted snap
+  LUT (`BorstUtils.getClosestColorWeighted`, lazy 256KB holder), computeColor,
+  the exact + incremental kernels, AND the G2 proxy kernel;
+  `PerceptualColorTest` pins snap and energy to the same constants.
+  F1-measured on top of Q2 (300/800 shapes): corpus ΔE00 −3.5%/−1.2%, SSIM
+  +1.6%/+1.2% (photo_detail SSIM +12%/+5%), at ~1.3–1.4× generation wall —
+  the same quality-over-speed trade G3 made keeping age=100 ⇒ **default ON**.
+  (Standalone on the old single-alpha config it was mixed — nature ΔE00
+  +11% — the win only materializes with the alpha search unlocked.)
+  8c (dithering) stays flagged/LOW.
+- **Q2 — P7 per-shape alpha optimization. ✅ DONE, M.** The predicted biggest
+  untapped lever, confirmed: candidates/mutations search alpha in
+  `[minAlphaIndex, 5]` (`Circle.alphaIndex`; RNG draws through the seeded
+  worker Random, determinism tests green). All four lock points unlocked
+  (`Circle` alpha field, `Worker.getEnergy`/proxy via `alphaFor`,
+  `Model.addShape`, `BorstData.update`); the copy footguns fixed —
+  `State.getCopy` / `Circle.fromValues` thread `alphaIndex` exactly where
+  x/y/r are copied (`PerShapeAlphaTest`); sorter cache key extended to
+  `(size,color,alpha,shape)` (shared with P11; mixed-alpha order-independence
+  tested). F1-measured vs single-alpha (equal shape count): **corpus ΔE00
+  −28% at 300 / −35% at 800 shapes** (edges 7.40→0.62 ΔE00, SSIM 0.62→0.97
+  at 800), and ~25% *faster*. `minAlpha` floor measured: 1 (alpha 48) beats
+  2 by −8%/−16% corpus ΔE00 and fixes the smooth-image regressions; 0 gains
+  ~3% more on trivial synthetics but regresses edges +11% and sits in the
+  least-calibrated blend regime → **default `minAlpha=1`**, 0 stays
+  config-reachable. **Correction stands and is restated honestly:** these are
+  SIM-space numbers; the painted-sign gain is partly hostage to P9 — low
+  alpha is where the uncalibrated `>>>8` blend model is least trustworthy.
+  Note: with the flag on, the UI's single Opacity setting no longer drives
+  generation (the search owns alpha); `shapeAlpha=false` restores it.
 
 ### Phase 3 — Paint-side speed + UX (paint time is the dominant real-world cost)
 
@@ -304,14 +330,18 @@ All LATER; corrections from the validation pass unchanged:
 
 ## 4. Priorities at a glance
 
-**Landed:** F1 (harness + metrics + runtime config) and Phase G (G1–G4,
-measured 3.6–4.9× at quality parity, defaults tuned and pinned by tests).
+**Landed:** F1 (harness + metrics + runtime config), Phase G (G1–G4, measured
+3.6–4.9× at quality parity) and Phase Q (Q1+Q2, measured corpus ΔE00 −30.5%
+at 300 shapes / −36% at 800 at equal shape count, net faster; defaults tuned
+and pinned by tests).
 
 **Highest-leverage remaining code changes:** S1 blob budget/pruning (paint
-time linear in N) on the real-world-minutes side; Q2 per-shape alpha (with Q1
-first) on the quality side; G5 parallel refine chains on the compute side —
-post-G2 the sequential refine phase is now the dominant generation cost
-(halving candidates barely moved wall time on refine-heavy images).
+time linear in N) on the real-world-minutes side; C1/P9 calibration on the
+correctness side (it also unlocks the painted-sign share of Q2's win and
+would let `minAlpha=0` be reconsidered); G5 parallel refine chains on the
+compute side — post-G2 the sequential refine phase is the dominant
+generation cost. P12 pruning is now unblocked too (Q2's opaque stamps create
+the fully-occluded shapes it harvests).
 
 > Numbers and harness details: `PERFORMANCE-PLAN.md`. What the fix pass
 > changed and why: `FIXES-APPLIED.md`. Validation provenance of P7–P18:

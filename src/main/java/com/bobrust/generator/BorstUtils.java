@@ -7,6 +7,31 @@ public class BorstUtils {
 	// public static final int[] ALPHAS = { 23, 48, 153, 214, 250, 255 };
 	public static final int[] ALPHAS = { 23, 48, 100, 190, 230, 255 };
 	public static final int[] SIZES = CircleCache.CIRCLE_CACHE_LENGTH; // { 1, 2, 4, 6, 10, 13 };
+
+	/**
+	 * Per-channel weights of the perceptual (channel-weighted RGB) color
+	 * metric — the classic 2:4:3 approximation of human luminance sensitivity.
+	 * The alpha weight is the RGB average so a fully-opaque pipeline keeps the
+	 * same score scale as the RGB channels.
+	 *
+	 * <p>METRIC-CONSISTENCY INVARIANT (Q1): the palette snap
+	 * ({@link #getClosestColorWeighted}) and every energy kernel in
+	 * {@code BorstCore} (exact, incremental AND the G2 proxy) must use exactly
+	 * these weights. computeColor derives the continuous optimal color
+	 * per-channel (per-channel argmin is weight-invariant), and the energy as a
+	 * function of the stamp color is the diagonal quadratic
+	 * {@code E(p) = E(c*) + K * sum_c w_c * (p_c - c*_c)^2}, so snapping with
+	 * the same diagonal weights keeps mean-then-snap the discrete optimum. A
+	 * snap metric that differs from the energy metric (e.g. OKLab snap over an
+	 * RGB energy) breaks that guarantee — which is why OKLab was rejected here.
+	 */
+	public static final int PERCEPTUAL_WEIGHT_R = 2;
+	public static final int PERCEPTUAL_WEIGHT_G = 4;
+	public static final int PERCEPTUAL_WEIGHT_B = 3;
+	public static final int PERCEPTUAL_WEIGHT_A = 3;
+	/** Sum of the four perceptual channel weights (score normalization). */
+	public static final int PERCEPTUAL_WEIGHT_SUM =
+		PERCEPTUAL_WEIGHT_R + PERCEPTUAL_WEIGHT_G + PERCEPTUAL_WEIGHT_B + PERCEPTUAL_WEIGHT_A;
 	
 	public static final BorstColor[] COLORS = {
 		new BorstColor(0, 0, 0),
@@ -103,22 +128,36 @@ public class BorstUtils {
 	private static final byte[] COLOR_INDEX_LUT;
 
 	static {
-		COLOR_INDEX_LUT = new byte[COLOR_LUT_SIZE * COLOR_LUT_SIZE * COLOR_LUT_SIZE];
+		COLOR_INDEX_LUT = buildColorLut(1, 1, 1);
+	}
+
+	/**
+	 * Weighted snap LUT for the perceptual metric, built lazily on first use
+	 * (class-holder idiom) so the legacy path pays no extra init cost.
+	 */
+	private static final class WeightedLutHolder {
+		static final byte[] LUT = buildColorLut(
+			PERCEPTUAL_WEIGHT_R, PERCEPTUAL_WEIGHT_G, PERCEPTUAL_WEIGHT_B);
+	}
+
+	private static byte[] buildColorLut(int wr, int wg, int wb) {
+		byte[] lut = new byte[COLOR_LUT_SIZE * COLOR_LUT_SIZE * COLOR_LUT_SIZE];
 		for (int ri = 0; ri < COLOR_LUT_SIZE; ri++) {
 			int r = (ri << COLOR_LUT_SHIFT) | ((1 << COLOR_LUT_SHIFT) - 1) >> 1;
 			for (int gi = 0; gi < COLOR_LUT_SIZE; gi++) {
 				int g = (gi << COLOR_LUT_SHIFT) | ((1 << COLOR_LUT_SHIFT) - 1) >> 1;
 				for (int bi = 0; bi < COLOR_LUT_SIZE; bi++) {
 					int b = (bi << COLOR_LUT_SHIFT) | ((1 << COLOR_LUT_SHIFT) - 1) >> 1;
-					COLOR_INDEX_LUT[(ri << (COLOR_LUT_BITS * 2)) | (gi << COLOR_LUT_BITS) | bi] =
-						(byte) getClosestColorIndexLinear(r, g, b);
+					lut[(ri << (COLOR_LUT_BITS * 2)) | (gi << COLOR_LUT_BITS) | bi] =
+						(byte) getClosestColorIndexLinear(r, g, b, wr, wg, wb);
 				}
 			}
 		}
+		return lut;
 	}
 
 	/** Linear scan fallback used during LUT initialization */
-	private static int getClosestColorIndexLinear(int b_r, int b_g, int b_b) {
+	static int getClosestColorIndexLinear(int b_r, int b_g, int b_b, int wr, int wg, int wb) {
 		int current_diff = Integer.MAX_VALUE;
 		int result = 0;
 		for (int i = 0, len = COLORS.length; i < len; i++) {
@@ -126,7 +165,7 @@ public class BorstUtils {
 			int rd = a.r - b_r;
 			int gd = a.g - b_g;
 			int bd = a.b - b_b;
-			int diff = rd * rd + gd * gd + bd * bd;
+			int diff = wr * rd * rd + wg * gd * gd + wb * bd * bd;
 			if (diff < current_diff) {
 				current_diff = diff;
 				result = i;
@@ -139,11 +178,28 @@ public class BorstUtils {
 		return COLORS[getClosestColorIndex(color)];
 	}
 
+	/** Snap under the metric selected by {@code perceptual} — see the invariant on the weight constants. */
+	public static BorstColor getClosestColor(int color, boolean perceptual) {
+		return perceptual ? getClosestColorWeighted(color) : getClosestColor(color);
+	}
+
 	public static int getClosestColorIndex(int color) {
 		int r = ((color >> 16) & 0xff) >> COLOR_LUT_SHIFT;
 		int g = ((color >>  8) & 0xff) >> COLOR_LUT_SHIFT;
 		int b = ( color        & 0xff) >> COLOR_LUT_SHIFT;
 		return COLOR_INDEX_LUT[(r << (COLOR_LUT_BITS * 2)) | (g << COLOR_LUT_BITS) | b] & 0xff;
+	}
+
+	/** Nearest palette color under the perceptual channel weights (Q1 snap). */
+	public static BorstColor getClosestColorWeighted(int color) {
+		return COLORS[getClosestColorIndexWeighted(color)];
+	}
+
+	public static int getClosestColorIndexWeighted(int color) {
+		int r = ((color >> 16) & 0xff) >> COLOR_LUT_SHIFT;
+		int g = ((color >>  8) & 0xff) >> COLOR_LUT_SHIFT;
+		int b = ( color        & 0xff) >> COLOR_LUT_SHIFT;
+		return WeightedLutHolder.LUT[(r << (COLOR_LUT_BITS * 2)) | (g << COLOR_LUT_BITS) | b] & 0xff;
 	}
 	
 	public static int clampInt(int value, int min, int max) {

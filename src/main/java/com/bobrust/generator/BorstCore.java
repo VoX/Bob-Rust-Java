@@ -1,7 +1,21 @@
 package com.bobrust.generator;
 
 class BorstCore {
+	/**
+	 * All energy kernels in this class share ONE color metric, selected by
+	 * their {@code perceptual} parameter: uniform RGB(A) when false (legacy),
+	 * the channel-weighted metric of {@link BorstUtils#PERCEPTUAL_WEIGHT_R}
+	 * etc. when true (Q1). The palette snap inside {@link #computeColor} uses
+	 * the SAME weights — snapping and ranking must never disagree (see the
+	 * invariant documented on the weight constants). Any new kernel — including
+	 * ranking-only approximations like {@link #differencePartialProxy} — must
+	 * take the flag and apply the same weights.
+	 */
 	static BorstColor computeColor(BorstImage target, BorstImage current, int alpha, int size, int x_offset, int y_offset) {
+		return computeColor(target, current, alpha, size, x_offset, y_offset, false);
+	}
+
+	static BorstColor computeColor(BorstImage target, BorstImage current, int alpha, int size, int x_offset, int y_offset, boolean perceptual) {
 		long rsum_1 = 0;
 		long gsum_1 = 0;
 		long bsum_1 = 0;
@@ -61,8 +75,12 @@ class BorstCore {
 		r = BorstUtils.clampInt(r, 0, 255);
 		g = BorstUtils.clampInt(g, 0, 255);
 		b = BorstUtils.clampInt(b, 0, 255);
-		
-		return BorstUtils.getClosestColor((alpha << 24) | (r << 16) | (g << 8) | (b));
+
+		// The continuous optimum above is per-channel and therefore identical
+		// under any per-channel weighting; only the SNAP metric changes. It must
+		// match the energy metric so the snapped color stays the discrete
+		// optimum (E(p) = E(c*) + K * sum_c w_c (p_c - c*_c)^2).
+		return BorstUtils.getClosestColor((alpha << 24) | (r << 16) | (g << 8) | (b), perceptual);
 	}
 	
 	// NOTE: This forward blend divides by 256 (>>> 8) while computeColor's
@@ -119,7 +137,12 @@ class BorstCore {
 	 * convergence, turning the score into NaN and silently stalling the search.
 	 */
 	static float scoreFromTotal(long total, int w, int h) {
-		return (float)(Math.sqrt(total / (w * h * 4.0)) / 255.0);
+		return scoreFromTotal(total, w, h, false);
+	}
+
+	static float scoreFromTotal(long total, int w, int h, boolean perceptual) {
+		int weightSum = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_SUM : 4;
+		return (float)(Math.sqrt(total / (w * h * (double)weightSum)) / 255.0);
 	}
 
 	static float differenceFull(BorstImage a, BorstImage b) {
@@ -127,8 +150,16 @@ class BorstCore {
 	}
 
 	static long differenceFullTotal(BorstImage a, BorstImage b) {
+		return differenceFullTotal(a, b, false);
+	}
+
+	static long differenceFullTotal(BorstImage a, BorstImage b, boolean perceptual) {
 		final int w = a.width;
 		final int h = a.height;
+		final int wr = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_R : 1;
+		final int wg = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_G : 1;
+		final int wb = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_B : 1;
+		final int wa = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_A : 1;
 
 		long total = 0;
 
@@ -136,23 +167,23 @@ class BorstCore {
 		for(int i = 0; i < length; i++) {
 			int aa = a.pixels[i];
 			int bb = b.pixels[i];
-			
+
 			int aa_a = (aa >>> 24) & 0xff;
 			int aa_r = (aa >>> 16) & 0xff;
 			int aa_g = (aa >>>  8) & 0xff;
 			int aa_b = (aa       ) & 0xff;
-			
+
 			int bb_a = (bb >>> 24) & 0xff;
 			int bb_r = (bb >>> 16) & 0xff;
 			int bb_g = (bb >>>  8) & 0xff;
 			int bb_b = (bb       ) & 0xff;
-			
+
 			int da = aa_a - bb_a;
 			int dr = aa_r - bb_r;
 			int dg = aa_g - bb_g;
 			int db = aa_b - bb_b;
-			
-			total += (dr*dr + dg*dg + db*db + da*da);
+
+			total += (wr*dr*dr + wg*dg*dg + wb*db*db + wa*da*da);
 		}
 
 		return total;
@@ -165,8 +196,16 @@ class BorstCore {
 	 * stays provably identical to {@link #differenceFullTotal}.
 	 */
 	static long differencePartialTotal(BorstImage target, BorstImage before, BorstImage after, long total, int size, int x_offset, int y_offset) {
+		return differencePartialTotal(target, before, after, total, size, x_offset, y_offset, false);
+	}
+
+	static long differencePartialTotal(BorstImage target, BorstImage before, BorstImage after, long total, int size, int x_offset, int y_offset, boolean perceptual) {
 		int w = target.width;
 		int h = target.height;
+		final int wr = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_R : 1;
+		final int wg = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_G : 1;
+		final int wb = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_B : 1;
+		final int wa = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_A : 1;
 
 		final Scanline[] lines = CircleCache.CIRCLE_CACHE[size];
 		final int len = lines.length;
@@ -210,9 +249,9 @@ class BorstCore {
 				int dr2 = tt_r - aa_r;
 				int dg2 = tt_g - aa_g;
 				int db2 = tt_b - aa_b;
-				
-				total -= (long)(dr1*dr1 + dg1*dg1 + db1*db1 + da1*da1);
-				total += (long)(dr2*dr2 + dg2*dg2 + db2*db2 + da2*da2);
+
+				total -= (long)(wr*dr1*dr1 + wg*dg1*dg1 + wb*db1*db1 + wa*da1*da1);
+				total += (long)(wr*dr2*dr2 + wg*dg2*dg2 + wb*db2*db2 + wa*da2*da2);
 			}
 		}
 
@@ -220,7 +259,7 @@ class BorstCore {
 	}
 
 	static float differencePartialThread(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, boolean useBatchParallel) {
-		return differencePartialThread(target, before, baseTotal, alpha, size, x_offset, y_offset, useBatchParallel, null);
+		return differencePartialThread(target, before, baseTotal, alpha, size, x_offset, y_offset, useBatchParallel, false, null);
 	}
 
 	/**
@@ -230,29 +269,33 @@ class BorstCore {
 	 * {@link #computeColor} (it may be left untouched for fully out-of-bounds
 	 * circles, where the kernel derives no color).
 	 */
-	static float differencePartialThread(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, boolean useBatchParallel, BorstColor[] colorOut) {
+	static float differencePartialThread(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, boolean useBatchParallel, boolean perceptual, BorstColor[] colorOut) {
 		if (useBatchParallel) {
-			return differencePartialThreadCombined(target, before, baseTotal, alpha, size, x_offset, y_offset, colorOut);
+			return differencePartialThreadCombined(target, before, baseTotal, alpha, size, x_offset, y_offset, perceptual, colorOut);
 		}
-		return differencePartialThreadClassic(target, before, baseTotal, alpha, size, x_offset, y_offset, colorOut);
+		return differencePartialThreadClassic(target, before, baseTotal, alpha, size, x_offset, y_offset, perceptual, colorOut);
 	}
 
 	static float differencePartialThreadClassic(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset) {
-		return differencePartialThreadClassic(target, before, baseTotal, alpha, size, x_offset, y_offset, null);
+		return differencePartialThreadClassic(target, before, baseTotal, alpha, size, x_offset, y_offset, false, null);
 	}
 
 	/**
 	 * Classic two-pass implementation: computeColor then energy calculation.
 	 * Used as fallback when USE_BATCH_PARALLEL is false.
 	 */
-	static float differencePartialThreadClassic(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, BorstColor[] colorOut) {
-		BorstColor color = BorstCore.computeColor(target, before, alpha, size, x_offset, y_offset);
+	static float differencePartialThreadClassic(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, boolean perceptual, BorstColor[] colorOut) {
+		BorstColor color = BorstCore.computeColor(target, before, alpha, size, x_offset, y_offset, perceptual);
 		if (colorOut != null) {
 			colorOut[0] = color;
 		}
 
 		final int h = target.height;
 		final int w = target.width;
+		final int wr = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_R : 1;
+		final int wg = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_G : 1;
+		final int wb = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_B : 1;
+		final int wa = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_A : 1;
 
 		long total = baseTotal;
 
@@ -304,12 +347,12 @@ class BorstCore {
 				int dg2 = tt_g - aa_g;
 				int db2 = tt_b - aa_b;
 
-				total -= (long)(dr1*dr1 + dg1*dg1 + db1*db1 + da1*da1);
-				total += (long)(dr2*dr2 + dg2*dg2 + db2*db2 + da2*da2);
+				total -= (long)(wr*dr1*dr1 + wg*dg1*dg1 + wb*db1*db1 + wa*da1*da1);
+				total += (long)(wr*dr2*dr2 + wg*dg2*dg2 + wb*db2*db2 + wa*da2*da2);
 			}
 		}
 
-		return scoreFromTotal(total, w, h);
+		return scoreFromTotal(total, w, h, perceptual);
 	}
 
 	/**
@@ -322,13 +365,17 @@ class BorstCore {
 	 * large win the original proposal claimed.)
 	 */
 	static float differencePartialThreadCombined(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset) {
-		return differencePartialThreadCombined(target, before, baseTotal, alpha, size, x_offset, y_offset, null);
+		return differencePartialThreadCombined(target, before, baseTotal, alpha, size, x_offset, y_offset, false, null);
 	}
 
-	static float differencePartialThreadCombined(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, BorstColor[] colorOut) {
+	static float differencePartialThreadCombined(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, boolean perceptual, BorstColor[] colorOut) {
 		final int h = target.height;
 		final int w = target.width;
 		final int pa = 255 - alpha;
+		final int wr = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_R : 1;
+		final int wg = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_G : 1;
+		final int wb = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_B : 1;
+		final int wa = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_A : 1;
 
 		final Scanline[] lines = CircleCache.CIRCLE_CACHE[size];
 		final int len = lines.length;
@@ -379,7 +426,7 @@ class BorstCore {
 				int dr1 = tt_r - cc_r;
 				int dg1 = tt_g - cc_g;
 				int db1 = tt_b - cc_b;
-				beforeError += (long)(dr1*dr1 + dg1*dg1 + db1*db1 + da1*da1);
+				beforeError += (long)(wr*dr1*dr1 + wg*dg1*dg1 + wb*db1*db1 + wa*da1*da1);
 			}
 
 			count += (xe - xs + 1);
@@ -387,7 +434,7 @@ class BorstCore {
 
 		// Guard against division by zero when circle is entirely out of bounds
 		if (count == 0) {
-			return scoreFromTotal(baseTotal, w, h);
+			return scoreFromTotal(baseTotal, w, h, perceptual);
 		}
 
 		// Compute optimal color from sums (same math as computeColor)
@@ -403,7 +450,7 @@ class BorstCore {
 		g = BorstUtils.clampInt(g, 0, 255);
 		b = BorstUtils.clampInt(b, 0, 255);
 
-		BorstColor color = BorstUtils.getClosestColor((alpha << 24) | (r << 16) | (g << 8) | (b));
+		BorstColor color = BorstUtils.getClosestColor((alpha << 24) | (r << 16) | (g << 8) | (b), perceptual);
 		if (colorOut != null) {
 			colorOut[0] = color;
 		}
@@ -451,14 +498,14 @@ class BorstCore {
 				int dr2 = tt_r - aa_r;
 				int dg2 = tt_g - aa_g;
 				int db2 = tt_b - aa_b;
-				afterError += (long)(dr2*dr2 + dg2*dg2 + db2*db2 + da2*da2);
+				afterError += (long)(wr*dr2*dr2 + wg*dg2*dg2 + wb*db2*db2 + wa*da2*da2);
 			}
 		}
 
 		// Combine: total = baseTotal - beforeError + afterError
 		long total = baseTotal - beforeError + afterError;
 
-		return scoreFromTotal(total, w, h);
+		return scoreFromTotal(total, w, h, perceptual);
 	}
 
 	/**
@@ -491,14 +538,25 @@ class BorstCore {
 	 * bit-for-bit unaffected by this approximation.
 	 */
 	static float differencePartialProxy(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset) {
+		return differencePartialProxy(target, before, baseTotal, alpha, size, x_offset, y_offset, false);
+	}
+
+	static float differencePartialProxy(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, boolean perceptual) {
 		final int stride = PROXY_STRIDE[size];
 		if (stride == 1) {
-			return differencePartialThreadCombined(target, before, baseTotal, alpha, size, x_offset, y_offset);
+			return differencePartialThreadCombined(target, before, baseTotal, alpha, size, x_offset, y_offset, perceptual, null);
 		}
 
 		final int h = target.height;
 		final int w = target.width;
 		final int pa = 255 - alpha;
+		// Metric consistency with the exact kernels (Q1): the proxy must rank
+		// with the same channel weights the objective uses, or ranking silently
+		// diverges from the exact energy it approximates.
+		final int wr = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_R : 1;
+		final int wg = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_G : 1;
+		final int wb = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_B : 1;
+		final int wa = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_A : 1;
 
 		final Scanline[] lines = CircleCache.CIRCLE_CACHE[size];
 		final int len = lines.length;
@@ -547,14 +605,14 @@ class BorstCore {
 				int dr1 = tt_r - cc_r;
 				int dg1 = tt_g - cc_g;
 				int db1 = tt_b - cc_b;
-				beforeError += (long)(dr1*dr1 + dg1*dg1 + db1*db1 + da1*da1);
+				beforeError += (long)(wr*dr1*dr1 + wg*dg1*dg1 + wb*db1*db1 + wa*da1*da1);
 				count++;
 			}
 		}
 
 		// Entirely out of bounds — same behavior as the exact kernels
 		if (count == 0) {
-			return scoreFromTotal(baseTotal, w, h);
+			return scoreFromTotal(baseTotal, w, h, perceptual);
 		}
 
 		// Optimal color from the sampled sums (same math as computeColor)
@@ -567,7 +625,7 @@ class BorstCore {
 		int g = BorstUtils.clampInt((int)(gsum / (double)count) >> 8, 0, 255);
 		int b = BorstUtils.clampInt((int)(bsum / (double)count) >> 8, 0, 255);
 
-		BorstColor color = BorstUtils.getClosestColor((alpha << 24) | (r << 16) | (g << 8) | (b));
+		BorstColor color = BorstUtils.getClosestColor((alpha << 24) | (r << 16) | (g << 8) | (b), perceptual);
 
 		final int cr = color.r * alpha;
 		final int cg = color.g * alpha;
@@ -610,7 +668,7 @@ class BorstCore {
 				int dr2 = tt_r - aa_r;
 				int dg2 = tt_g - aa_g;
 				int db2 = tt_b - aa_b;
-				afterError += (long)(dr2*dr2 + dg2*dg2 + db2*db2 + da2*da2);
+				afterError += (long)(wr*dr2*dr2 + wg*dg2*dg2 + wb*db2*db2 + wa*da2*da2);
 			}
 		}
 
@@ -622,6 +680,6 @@ class BorstCore {
 			total = 0;
 		}
 
-		return scoreFromTotal(total, w, h);
+		return scoreFromTotal(total, w, h, perceptual);
 	}
 }

@@ -107,7 +107,8 @@ class ReviewFixesRegressionTest {
 			model.processStep();
 		}
 
-		long recomputed = BorstCore.differenceFullTotal(target, model.current);
+		long recomputed = BorstCore.differenceFullTotal(target, model.current,
+			GeneratorConfig.DEFAULT.usePerceptualColor());
 		assertEquals(recomputed, model.getTotalError(),
 			"incremental total must be exactly equal to a full recompute");
 		assertFalse(Float.isNaN(model.getScore()));
