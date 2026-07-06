@@ -75,6 +75,7 @@ public class BorstGenerator {
 			}
 			
 			// Start from previous position
+			final GeneratorConfig genConfig = model.getConfig(); // resolved config (auto-alpha etc.), not the raw arg
 			int i = model.shapes.size();
 			try {
 				long begin = System.nanoTime();
@@ -97,7 +98,7 @@ public class BorstGenerator {
 						if (AppConstants.DEBUG_GENERATOR) {
 							double time = (end - begin) / 1000000000.0;
 							double sps = i / time;
-							
+
 							LOGGER.debug("{}: t={} s, score={}, n={}, s/s={}",
 								"%5d".formatted(i),
 								"%.3f".formatted(time),
@@ -105,6 +106,15 @@ public class BorstGenerator {
 								n,
 								"%.2f".formatted(sps)
 							);
+						}
+
+						// S4/P4: diminishing-returns auto-stop. Checked at the callback cadence (cheap: one scan of
+						// the contribution list). Off unless qualityStop > 0. The finally block below still publishes
+						// the final index, so the UI slider simply stops growing — no separate stop plumbing needed.
+						if (genConfig.qualityStop() > 0
+								&& DiminishingReturns.reached(model.getShapeContributions(), genConfig.qualityStop(), 500)) {
+							LOGGER.info("Auto-stop: diminishing returns at {} shapes (qualityStop={})", i, genConfig.qualityStop());
+							break;
 						}
 					}
 				}

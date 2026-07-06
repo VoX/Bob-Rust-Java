@@ -30,13 +30,14 @@ class GeneratorConfigTest {
 		assertEquals(1, config.minAlphaIndex(), "Q2: harness-validated alpha floor");
 		assertEquals(500, config.maxRandomStates(), "G3: harness-validated candidate count");
 		assertEquals(100, config.age());
+		assertEquals(0.0, config.qualityStop(), "P4: diminishing-returns auto-stop is a dormant knob (off by default)");
 	}
 
 	@Test
 	void serializeParseRoundTrips() {
 		assertEquals(GeneratorConfig.DEFAULT, GeneratorConfig.parse(GeneratorConfig.DEFAULT.serialize()));
 
-		GeneratorConfig custom = new GeneratorConfig(42L, false, false, true, 0.5, false, false, true, true, 3, 750, 50);
+		GeneratorConfig custom = new GeneratorConfig(42L, false, false, true, 0.5, false, false, true, true, 3, 750, 50, 0.9);
 		assertEquals(custom, GeneratorConfig.parse(custom.serialize()));
 	}
 
@@ -53,6 +54,21 @@ class GeneratorConfigTest {
 			"out-of-range sizeBias keeps default");
 		assertThrows(IllegalArgumentException.class, () -> GeneratorConfig.DEFAULT.withSizeClickBias(3));
 		assertThrows(IllegalArgumentException.class, () -> GeneratorConfig.DEFAULT.withSizeClickBias(Double.NaN));
+	}
+
+	@Test
+	void qualityStopParsesRoundTripsAndValidates() {
+		// S4: the dormant qualityStop knob round-trips, malformed/out-of-range keeps the default, and the setter
+		// enforces the [0, 1) range (1.0 is rejected -- you can never bank 100% of a projected ceiling).
+		GeneratorConfig cfg = GeneratorConfig.parse("qualityStop=0.95");
+		assertEquals(0.95, cfg.qualityStop());
+		assertEquals(0.95, GeneratorConfig.parse(cfg.serialize()).qualityStop(), "qualityStop round-trips through serialize");
+		assertEquals(GeneratorConfig.DEFAULT.qualityStop(), GeneratorConfig.parse("qualityStop=abc").qualityStop(),
+			"unparseable qualityStop keeps default");
+		assertEquals(GeneratorConfig.DEFAULT.qualityStop(), GeneratorConfig.parse("qualityStop=1.5").qualityStop(),
+			"out-of-range qualityStop keeps default");
+		assertThrows(IllegalArgumentException.class, () -> GeneratorConfig.DEFAULT.withQualityStop(1.0));
+		assertThrows(IllegalArgumentException.class, () -> GeneratorConfig.DEFAULT.withQualityStop(-0.1));
 	}
 
 	@Test

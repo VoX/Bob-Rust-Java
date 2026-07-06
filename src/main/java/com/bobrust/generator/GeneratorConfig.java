@@ -33,7 +33,8 @@ public record GeneratorConfig(
 	boolean usePerShapeAlpha,
 	int minAlphaIndex,
 	int maxRandomStates,
-	int age
+	int age,
+	double qualityStop
 ) {
 	public static final GeneratorConfig DEFAULT = new GeneratorConfig(
 		0L,
@@ -47,7 +48,8 @@ public record GeneratorConfig(
 		AppConstants.USE_PER_SHAPE_ALPHA,
 		AppConstants.MIN_ALPHA_INDEX,
 		500,
-		100
+		100,
+		0.0
 	);
 
 	/** Sentinel for {@code minAlphaIndex}: resolve the alpha floor per image from the target's edge statistics
@@ -67,57 +69,68 @@ public record GeneratorConfig(
 		if (!Double.isFinite(sizeClickBias) || sizeClickBias < 0 || sizeClickBias > 2) {
 			throw new IllegalArgumentException("sizeClickBias must be finite in [0, 2]: " + sizeClickBias);
 		}
+		if (!Double.isFinite(qualityStop) || qualityStop < 0 || qualityStop >= 1) {
+			throw new IllegalArgumentException("qualityStop must be finite in [0, 1): " + qualityStop);
+		}
 	}
 
 	public GeneratorConfig withSeed(long seed) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withUseSimulatedAnnealing(boolean useSimulatedAnnealing) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withUseErrorGuidedPlacement(boolean useErrorGuidedPlacement) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withUseAdaptiveSize(boolean useAdaptiveSize) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	/** Click-aware size tilt (P1b). Only meaningful with {@code adaptiveSize=true} (no GradientMap otherwise).
 	 *  0 = off (bit-identical to the pre-P1b weighting); beta=1 ~ selection probability proportional to covered
 	 *  area x the gradient prior. Experimental — dormant by default until the beta sweep decides. */
 	public GeneratorConfig withSizeClickBias(double sizeClickBias) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withUseBatchParallel(boolean useBatchParallel) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withUseProxyRanking(boolean useProxyRanking) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withUsePerceptualColor(boolean usePerceptualColor) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withUsePerShapeAlpha(boolean usePerShapeAlpha) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withMinAlphaIndex(int minAlphaIndex) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withMaxRandomStates(int maxRandomStates) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	public GeneratorConfig withAge(int age) {
-		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age);
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
+	}
+
+	/** Diminishing-returns auto-stop (S4/P4). 0 = off (never stops early). In (0, 1): stop generating once the
+	 *  banked fraction of the projected achievable error reduction reaches this value (geometric-tail estimate over
+	 *  trailing shape-contribution windows — see {@link DiminishingReturns}). 0.95 ~ "stop at 95% of the projected
+	 *  ceiling"; an energy-metric proxy for the SSIM-vs-clicks knee. Experimental — dormant by default. */
+	public GeneratorConfig withQualityStop(double qualityStop) {
+		return new GeneratorConfig(seed, useSimulatedAnnealing, useErrorGuidedPlacement, useAdaptiveSize, sizeClickBias, useBatchParallel, useProxyRanking, usePerceptualColor, usePerShapeAlpha, minAlphaIndex, maxRandomStates, age, qualityStop);
 	}
 
 	/**
@@ -136,7 +149,8 @@ public record GeneratorConfig(
 			+ ";shapeAlpha=" + usePerShapeAlpha
 			+ ";minAlpha=" + minAlphaIndex
 			+ ";states=" + maxRandomStates
-			+ ";age=" + age;
+			+ ";age=" + age
+			+ ";qualityStop=" + qualityStop;
 	}
 
 	/**
@@ -172,6 +186,7 @@ public record GeneratorConfig(
 					case "minAlpha" -> config.withMinAlphaIndex(Integer.parseInt(value));
 					case "states" -> config.withMaxRandomStates(Integer.parseInt(value));
 					case "age" -> config.withAge(Integer.parseInt(value));
+					case "qualityStop" -> config.withQualityStop(Double.parseDouble(value));
 					default -> config;
 				};
 			} catch (IllegalArgumentException ignored) {

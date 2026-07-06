@@ -20,6 +20,7 @@ import com.bobrust.generator.BorstImage;
 import com.bobrust.generator.BorstUtils;
 import com.bobrust.generator.Circle;
 import com.bobrust.generator.ComplexTestImages;
+import com.bobrust.generator.DiminishingReturns;
 import com.bobrust.generator.GeneratorConfig;
 import com.bobrust.generator.Model;
 import com.bobrust.generator.TestBlobs;
@@ -209,6 +210,12 @@ class ClickBudgetSweepTest {
 				blobs.add(Blob.of(shape.x, shape.y, shape.r, color.rgb,
 					perShapeAlpha ? BorstUtils.ALPHAS[shape.alphaIndex] : GLOBAL_ALPHA,
 					AppConstants.CIRCLE_SHAPE));
+			}
+			// S4: apply the same diminishing-returns auto-stop the generator uses, so the sweep measures the
+			// real early-stop click savings (off unless qualityStop > 0).
+			if (config.qualityStop() > 0
+					&& DiminishingReturns.reached(model.getShapeContributions(), config.qualityStop(), 500)) {
+				break;
 			}
 			if (clicksOf(BorstSorter.sort(new BlobList(blobs))) > budget) {
 				break;
