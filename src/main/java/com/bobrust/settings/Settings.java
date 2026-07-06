@@ -2,6 +2,7 @@ package com.bobrust.settings;
 
 import java.awt.*;
 
+import com.bobrust.generator.BlobPruner;
 import com.bobrust.generator.GeneratorConfig;
 import com.bobrust.lang.RustUI;
 import com.bobrust.settings.data.ScalingType;
@@ -96,6 +97,15 @@ public interface Settings {
 	 */
 	StringType SettingsGeneratorConfig = new StringType(null);
 
+	/**
+	 * Serialized {@link BlobPruner.Options} ({@code budget=1500;maxLoss=0.01},
+	 * see {@link BlobPruner.Options#parse}). S1 blob pruning / budget
+	 * selection is OPT-IN: unset/blank means no pruning and the painted output
+	 * is exactly the pre-S1 behavior. Not exposed in the GUI — the preset
+	 * ladder that will drive this is S3.
+	 */
+	StringType SettingsPaintPrune = new StringType(null);
+
 	// Used for internal save state
 	InternalSettings InternalSettings = new InternalSettings();
 	
@@ -106,6 +116,14 @@ public interface Settings {
 	 */
 	static GeneratorConfig getGeneratorConfig() {
 		return GeneratorConfig.parse(SettingsGeneratorConfig.get());
+	}
+
+	/**
+	 * The paint-plan pruning options: the persisted {@link #SettingsPaintPrune}
+	 * string when set, otherwise {@link BlobPruner.Options#NONE} (no pruning).
+	 */
+	static BlobPruner.Options getPaintPruneOptions() {
+		return BlobPruner.Options.parse(SettingsPaintPrune.get());
 	}
 
 	static Color getSettingsBackgroundCalculated() {

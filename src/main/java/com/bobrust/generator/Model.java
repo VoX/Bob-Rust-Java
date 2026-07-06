@@ -16,6 +16,16 @@ public class Model {
 		
 	public final List<Circle> shapes;
 	public final List<BorstColor> colors;
+	/**
+	 * Marginal contribution of each committed shape (S1a): the exact reduction
+	 * of {@link #totalError} the shape's commit produced, in the model's energy
+	 * metric (perceptual-weighted when Q1 is on). Parallel to {@link #shapes}.
+	 * Recorded against the composite at commit time — dropping an earlier shape
+	 * changes what later shapes blended over (the substrate effect), so this is
+	 * a ranking heuristic only; any pruning decision must re-render and verify
+	 * the true score (see BlobPruner).
+	 */
+	private final List<Long> shapeContributions;
 	public final int alpha;
 	public final int width;
 	public final int height;
@@ -40,6 +50,7 @@ public class Model {
 		int h = target.height;
 		this.shapes = new ArrayList<>();
 		this.colors = new ArrayList<>();
+		this.shapeContributions = new ArrayList<>();
 		this.target = target;
 		this.width = w;
 		this.height = h;
@@ -80,6 +91,7 @@ public class Model {
 
 		final boolean perceptual = config.usePerceptualColor();
 		final int shapeAlpha = worker.alphaFor(shape);
+		final long errorBefore = totalError;
 		int cache_index = BorstUtils.getClosestSizeIndex(shape.r);
 		BorstColor color = (knownColor != null)
 			? knownColor
@@ -90,6 +102,7 @@ public class Model {
 		this.score = BorstCore.scoreFromTotal(totalError, width, height, perceptual);
 		shapes.add(shape);
 		colors.add(color);
+		shapeContributions.add(errorBefore - totalError);
 
 		// Incrementally update the error map after drawing the new shape
 		if (errorMap != null) {
@@ -113,6 +126,15 @@ public class Model {
 	/** Returns the exact squared-error total that {@link #getScore()} is derived from. */
 	long getTotalError() {
 		return totalError;
+	}
+
+	/**
+	 * Per-shape marginal contributions, parallel to {@link #shapes} — see the
+	 * field doc for the substrate-effect caveat. Live list; only read from the
+	 * generator thread (BorstData.update).
+	 */
+	public List<Long> getShapeContributions() {
+		return shapeContributions;
 	}
 
 	/** Package-private accessor for the worker (used by MultiResModel). */

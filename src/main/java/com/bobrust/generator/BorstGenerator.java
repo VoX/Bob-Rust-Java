@@ -214,12 +214,14 @@ public class BorstGenerator {
 	 */
 	public static class BorstData {
 		private final List<Blob> blobs;
+		private final List<Long> contributions;
 		private int index;
-		
+
 		private BorstData() {
 			this.blobs = new ArrayList<>();
+			this.contributions = new ArrayList<>();
 		}
-		
+
 		private synchronized void update(Model model, int index) {
 			this.index = index;
 
@@ -230,6 +232,7 @@ public class BorstGenerator {
 			// For all new elements
 			var shapes = model.shapes;
 			var colors = model.colors;
+			var shapeContributions = model.getShapeContributions();
 			for (int i = blobs.size(); i < shapes.size(); i++) {
 				var shape = shapes.get(i);
 				var color = colors.get(i);
@@ -241,18 +244,29 @@ public class BorstGenerator {
 					perShapeAlpha ? BorstUtils.ALPHAS[shape.alphaIndex] : model.alpha,
 					AppConstants.CIRCLE_SHAPE
 				));
+				contributions.add(shapeContributions.get(i));
 			}
 		}
-		
+
 		private void clear() {
 			this.index = 0;
 			this.blobs.clear();
+			this.contributions.clear();
 		}
-		
+
 		public List<Blob> getBlobs() {
 			return blobs;
 		}
-		
+
+		/**
+		 * S1a: each blob's marginal error reduction at commit time, parallel to
+		 * {@link #getBlobs()} (model energy metric — a ranking heuristic only;
+		 * see Model#getShapeContributions for the substrate-effect caveat).
+		 */
+		public List<Long> getContributions() {
+			return contributions;
+		}
+
 		public int getIndex() {
 			return index;
 		}

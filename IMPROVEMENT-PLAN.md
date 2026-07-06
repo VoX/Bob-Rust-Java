@@ -77,8 +77,14 @@ Phase 6), `PAINT_THRESHOLD`, GradientMap max-normalization caveat.
   pixel hash). Honest caveat: the *painted-sign* share of the per-shape
   alpha gain is partly hostage to P9 calibration (see Q2 below).
 
+- ✅ **S1 paint-side blob pruning + budget selection + instruction-list
+  resume refactor** — `BlobPruner` (re-render-and-verify via exact bbox
+  replay), `PaintPlan` (explicit instruction list, legacy-parity when
+  unpruned, `previouslyUsed` TODO resolved), opt-in via `SettingsPaintPrune`.
+  Measured curves in §3 Phase 3.
+
 **NOT done — the remaining work** (§3 below): paint-speed / robustness /
-packaging features (S1+, C1, R1, …) and the deferred G5 parallel-refine item.
+packaging features (S2+, C1, R1, …) and the deferred G5 parallel-refine item.
 
 ---
 
@@ -121,12 +127,12 @@ packaging features (S1+, C1, R1, …) and the deferred G5 parallel-refine item.
 - **SA-off no longer carries determinism weight** — PERFORMANCE-PLAN.md wrote
   that dropping SA "removes nondeterministic acceptance draws"; the fix pass
   already seeded those draws. G1 is now purely a speed/quality-parity change.
-- **Still-standing validator corrections** (unchanged): per-shape alpha's
+- **Still-standing validator corrections**: per-shape alpha's
   *painted* payoff is partly hostage to P9 calibration; the perceptual snap
-  metric must equal the energy metric; blob pruning must re-render-and-verify
-  (substrate effect) and ship with the `previouslyUsed` refactor; blend
-  divisor and the open-loop painter stay deferred pending calibration /
-  closed-loop work.
+  metric must equal the energy metric; blend divisor and the open-loop
+  painter stay deferred pending calibration / closed-loop work. (The blob
+  pruning corrections — re-render-and-verify against the substrate effect,
+  ship with the `previouslyUsed` refactor — are now implemented ✅, see S1.)
 
 ---
 
@@ -237,17 +243,44 @@ and age=50 did NOT validate at parity — both stay config-reachable.*
 
 ### Phase 3 — Paint-side speed + UX (paint time is the dominant real-world cost)
 
-- **S1 — Blob-count budget selection + dead-blob pruning. NEXT, M, deps:
-  2-opt ✅, exact energy ✅; ship WITH the `previouslyUsed` refactor.** The
-  single biggest real-world lever: paint time is linear in N
-  (`T ≈ N·60ms + const`); 4000→1500 = 2.6×. Corrections stand: (1)
-  prune-then-**re-render-and-verify** the true score (substrate effect — the
-  per-blob bound isn't rigorous); (2) budget selection breaks the pure-prefix
-  `previouslyUsed` resume assumption — do the instruction-list refactor here
-  (same one R1/P13d needs; build once).
-  *Success: on the corpus, ≥30% blob reduction at ≤1% re-rendered score loss.*
+- **S1 — Blob-count budget selection + dead-blob pruning. ✅ DONE, M** (with
+  the `previouslyUsed` → instruction-list refactor, as required). Shipped as:
+  - **S1a** — `Model` records each committed shape's exact marginal Δerror;
+    exposed per blob via `BorstData.getContributions()` (heuristic only — see
+    the substrate caveat below; consumed by S2's estimator/readout later).
+  - **S1b** — `BlobPruner`: dead-blob pruning (`maxLoss` tolerance) and
+    hard-budget selection over the generated blob list. The panel correction
+    is implemented literally: every drop is verified by an **exact
+    bbox-limited replay of `BorstCore.drawLines`** (per-pixel compositing
+    means a drop only changes pixels under its own stamp) — NOT the recorded
+    marginal, and NOT `ShapeRender`'s antialiased buffers. Replay exactness
+    is test-pinned: drop deltas, the maintained composite and the running
+    total all equal a full from-scratch recompute (`BlobPrunerTest`). This
+    replay engine is the one P12/P16 reuse later.
+  - **S1c** — `PaintPlan`: the explicit paint instruction list (sorted,
+    possibly pruned) with a frozen resume cursor, resolving the
+    `DrawDialog.java` `previouslyUsed`-should-start-at-`drawnShapes` TODO.
+    Unpruned parity with the legacy bookkeeping is test-pinned instruction-
+    for-instruction, including chunked extension, slider moves and
+    resume-after-interrupt (`PaintPlanTest`); the shape-count slider stays
+    the fine control (it selects the generated prefix a budget prunes within).
+  - **OPT-IN**: `SettingsPaintPrune` (`budget=N;maxLoss=f`), default unset =
+    zero behavior change. The preset UI that will drive it is S3.
+  - **Measured** (F1 corpus, `PruneBenchmarkTest`, true re-rendered metrics):
+    at 800 shapes, `maxLoss=1%` verified pruning drops **38% of blobs on
+    solid, 25% on nature (ΔE00 −3.6%), 15% on gradient** at ≤1% RMSE loss —
+    but only 4–5% on edges/photo_detail, where post-Q2 every blob is
+    load-bearing (budget60 on edges costs +106% RMSE; the verifier correctly
+    refuses). Corpus-wide: −17% blobs at 800 shapes, −9% at 300. The plan's
+    original "≥30% at ≤1%" hope holds only on smooth images — Q2's per-shape
+    alpha already ate most of the dead weight the estimate was based on.
+    Budget mode beats prefix truncation everywhere (test-pinned) and even
+    *improves* quality at 90% on solid/nature (net-harmful blobs get culled).
+    Blob-count → paint-minutes is linear, so budget% reads directly as paint
+    time; S2's estimator will label the presets from these curves.
 - **S2 — Paint-time estimator + live readout in `DrawDialog`. NEXT, M, deps:
-  2-opt ✅.** Replaces the `OverlayTopPanel` fudge and the (formerly
+  2-opt ✅, S1 ✅ (estimate the pruned `PaintPlan`, not the raw shape count;
+  the S1 curve data labels quality).** Replaces the `OverlayTopPanel` fudge and the (formerly
   EDT-freezing) "Calculate Exact Time" button with a debounced background
   `SwingWorker`: "≈ 1m 12s · ≈ 84% match". Cost model verified line-by-line
   against `BobRustPainter`; persist `t_cap`.
@@ -282,7 +315,9 @@ and age=50 did NOT validate at parity — both stay config-reachable.*
 ### Phase 5 — Robot robustness
 
 - **R1 — P13 closed-loop painting + journal/resume. LATER, L, deps: 2-opt ✅,
-  S1's `previouslyUsed` refactor; 13a's delta-magnitude gate wants C1.**
+  S1's `previouslyUsed` refactor ✅ (journal/exact-resume now records a
+  `PaintPlan` cursor, not a generated-prefix index); 13a's delta-magnitude
+  gate wants C1.**
   Ship order inside: 13a false-retry hotfix + 13d journal/exact-resume + 13b
   batch screenshot-diff verification first. Until calibrated, gate on delta
   *sign* + tolerance, not magnitude. This also finally subsumes the deferred
@@ -331,17 +366,20 @@ All LATER; corrections from the validation pass unchanged:
 ## 4. Priorities at a glance
 
 **Landed:** F1 (harness + metrics + runtime config), Phase G (G1–G4, measured
-3.6–4.9× at quality parity) and Phase Q (Q1+Q2, measured corpus ΔE00 −30.5%
+3.6–4.9× at quality parity), Phase Q (Q1+Q2, measured corpus ΔE00 −30.5%
 at 300 shapes / −36% at 800 at equal shape count, net faster; defaults tuned
-and pinned by tests).
+and pinned by tests) and S1 (blob pruning/budget + `PaintPlan` instruction
+list, opt-in; measured −38% blobs on solid / −25% on nature at ≤1% verified
+score loss, curve data for the S3 presets).
 
-**Highest-leverage remaining code changes:** S1 blob budget/pruning (paint
-time linear in N) on the real-world-minutes side; C1/P9 calibration on the
-correctness side (it also unlocks the painted-sign share of Q2's win and
-would let `minAlpha=0` be reconsidered); G5 parallel refine chains on the
-compute side — post-G2 the sequential refine phase is the dominant
-generation cost. P12 pruning is now unblocked too (Q2's opaque stamps create
-the fully-occluded shapes it harvests).
+**Highest-leverage remaining code changes:** S2/S3 (paint-time estimator +
+preset ladder — the UI that actually spends S1's paint-minutes win); C1/P9
+calibration on the correctness side (it also unlocks the painted-sign share
+of Q2's win and would let `minAlpha=0` be reconsidered); G5 parallel refine
+chains on the compute side — post-G2 the sequential refine phase is the
+dominant generation cost. P12 pruning is now unblocked too (Q2's opaque
+stamps create the fully-occluded shapes it harvests) and can reuse S1's
+replay engine directly.
 
 > Numbers and harness details: `PERFORMANCE-PLAN.md`. What the fix pass
 > changed and why: `FIXES-APPLIED.md`. Validation provenance of P7–P18:

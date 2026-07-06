@@ -1,10 +1,14 @@
 package com.bobrust.gui.dialog;
 
+import com.bobrust.generator.BlobPruner;
 import com.bobrust.generator.BorstGenerator;
+import com.bobrust.generator.BorstImage;
 import com.bobrust.generator.BorstUtils;
 import com.bobrust.generator.Model;
 import com.bobrust.generator.sorter.BlobList;
 import com.bobrust.generator.sorter.BorstSorter;
+import com.bobrust.generator.sorter.PaintPlan;
+import com.bobrust.util.metrics.ImageMetrics;
 import com.bobrust.gui.comp.JIntegerField;
 import com.bobrust.gui.comp.JResizeComponent;
 import com.bobrust.robot.BobRustPainter;
@@ -48,7 +52,16 @@ public class DrawDialog extends JDialog {
 	private GraphicsConfiguration monitor;
 	private Model previousBorstModel;
 	private int drawnShapes;
-	private final BlobList previouslyUsed = new BlobList(); // We need to continue using these instructions
+	/**
+	 * The explicit paint instruction list + resume cursor (S1c). Replaces the
+	 * old 'previouslyUsed' prefix bookkeeping so budget selection / pruning
+	 * and resume-after-interrupt stay correct together.
+	 */
+	private final PaintPlan paintPlan = new PaintPlan();
+	// The generator's input image + background, kept for the pruner's
+	// re-render-and-verify pass (only consulted when pruning is enabled).
+	private BufferedImage lastScaledImage;
+	private int lastBackground;
 	final BorstGenerator borstGenerator;
 	
 	public DrawDialog(ScreenDrawDialog parent) {
@@ -211,21 +224,26 @@ public class DrawDialog extends JDialog {
 				
 				int count = shapesSlider.getValue();
 				BlobList list;
-				
+
+				BlobPruner.Options pruneOptions = Settings.getPaintPruneOptions();
 				synchronized (borstGenerator.data) {
-					// TODO: 'previouslyUsed' should start at 'drawnShapes'
-					int previouslyComputed = previouslyUsed.size();
-					if (previouslyComputed <= drawnShapes || previouslyComputed <= count) {
-						// Fill the previouslyUsed list with new data
-						int missing = count - previouslyComputed;
-						BlobList missingList = BorstSorter.sort(RustUtil.convertToList(borstGenerator.data, count - missing, missing));
-						previouslyUsed.getList().addAll(missingList.getList());
+					BorstImage pruneTarget = null;
+					if (pruneOptions.enabled() && lastScaledImage != null) {
+						pruneTarget = new BorstImage(
+							ImageMetrics.argbPixels(lastScaledImage), lastScaledImage.getWidth());
 					}
+					paintPlan.extend(borstGenerator.data.getBlobs(), count, pruneOptions, pruneTarget, lastBackground);
 				}
-				
-				list = new BlobList();
-				list.assign(previouslyUsed.getList(), drawnShapes, count - drawnShapes);
-				updateTimeRemaining(0, count - drawnShapes);
+				if (pruneOptions.enabled() && paintPlan.getLastPruneResult() != null) {
+					var pruneResult = paintPlan.getLastPruneResult();
+					LOGGER.info("Paint plan pruning: kept {}/{} blobs, true score {} -> {}",
+						pruneResult.kept().size(), pruneResult.originalCount(),
+						"%.6f".formatted(pruneResult.originalScore()),
+						"%.6f".formatted(pruneResult.prunedScore()));
+				}
+
+				list = paintPlan.paintList(count);
+				updateTimeRemaining(0, list.size());
 				
 				start = -1;
 				LOGGER.info("Start drawing");
@@ -254,10 +272,14 @@ public class DrawDialog extends JDialog {
 				parent.setAlwaysOnTop(false);
 				setAlwaysOnTop(false);
 				parent.repaint();
-				
+
 				setLocation(previous_location);
 				setSize(REGULAR);
-				
+
+				// Advance the resume cursor past what this pass painted; the
+				// already-painted instructions are frozen in the plan.
+				paintPlan.advancePainted(offsetShapes);
+
 				// Start generation again
 				startGeneration(offsetShapes);
 			}
@@ -340,7 +362,10 @@ public class DrawDialog extends JDialog {
 		if (Settings.SettingsUseICCConversion.get()) {
 			scaled = ImageUtil.applyFilters(scaled);
 		}
-		
+
+		lastScaledImage = scaled;
+		lastBackground = bgColor.getRGB();
+
 		drawnShapes += offset;
 		minShapeLabel.setText(Integer.toString(drawnShapes + 1));
 		shapesSlider.setMinimum(drawnShapes + 1);
@@ -381,7 +406,7 @@ public class DrawDialog extends JDialog {
 		// Force the user to reset the palette
 		previousBorstModel = null;
 		rustPalette.reset();
-		previouslyUsed.reset();
+		paintPlan.reset();
 		drawnShapes = 0;
 		
 		// Update old graphics
