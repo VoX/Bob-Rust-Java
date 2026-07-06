@@ -270,6 +270,35 @@ At a fixed click budget these barely matter — the plan is coverage-limited:
   batch. Note `USE_TSP_OPTIMIZATION` (`TwoOptOptimizer`) is currently
   `false` and optimizes travel distance — the wrong objective, since mouse
   travel is free; retire it in favor of pure change-count scheduling.
+- **OUTCOME (S6, implemented + measured → NOT shipped).** The TSP retirement
+  landed (dead, precedence-unsafe, free-objective code — removed). The batch
+  scheduler itself was built behind a flag with a full correctness suite
+  (permutation, exhaustive z-order-invariant check, render-equality, group
+  boundaries) and an offline validator (`SchedulerClickValidationTest`), then
+  measured on the corpus at 6k shapes vs the existing greedy:
+
+  | image | color greedy→batch | tool-changes greedy→batch |
+  |---|---|---|
+  | texture | 1412 → 1624 | 2035 → 2623 |
+  | glyphs | 1388 → 1626 | 2856 → 3581 |
+  | portrait | 1893 → 2125 | 2866 → 3356 |
+  | skyline | 1722 → 2058 | 2752 → 3686 |
+  | mosaic | 3400 → 3714 | 4897 → 5761 |
+  | **pooled** | **9815 → 11147 (+13.6%)** | **15406 → 19007 (+23.4%)** |
+
+  The maximal-ready-batch scheduler is *worse* on every image — more color
+  changes AND more total tool changes. It only beat the greedy on
+  pathologically dense synthetic overlap (unit fixtures); on real generator
+  output the greedy's exact-key→one-dim cache (`find_best_fast_cache`) already
+  wins. Committing an entire ready batch of one key strands the other
+  dimensions and forces more switches downstream than the greedy's local
+  choice. **The flag never flipped; the scheduler and its tests were removed
+  rather than shipped as dead losing code.** Also learned: "renders
+  bit-identically to generation order" is not literally true at scale — the
+  same-size+same-color exemption commutes only up to ±1–2/channel integer-blend
+  truncation, which the *existing* greedy already incurs (greedy vs generation
+  diverged on up to ~2000 px on glyphs, all ≤1/channel). Cosmetically invisible,
+  but the sorter is order-identical only for constrained pairs, not exempt ones.
 
 ### P4 — Diminishing-returns auto-stop / click-budget picker
 
@@ -316,6 +345,7 @@ At a fixed click budget these barely matter — the plan is coverage-limited:
 | `alphaFloor2` | −0.031 SSIM, +1.67 ΔE (2-img) | dominated at both ends |
 | `singleAlpha` | −0.015 SSIM, +1.25 ΔE pooled | alpha diversity pays for its clicks |
 | `opaque` as default | −0.024 SSIM, +5.63 ΔE pooled | metric-gaming; stencil toggle only |
+| P3 batch scheduler | +13.6% color / +23.4% total tool changes (6k-shape corpus) | greedy already wins on real data; not shipped (see P3 outcome) |
 
 The pattern: at a fixed click budget, spending more compute per shape
 (`sa`/`hiStates`/`exactRank`) returns ≤+0.007 SSIM, while spending the *same*
