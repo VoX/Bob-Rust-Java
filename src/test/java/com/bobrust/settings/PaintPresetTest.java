@@ -33,17 +33,20 @@ class PaintPresetTest {
 	}
 
 	@Test
-	void balancedIsTheDefaultPresetAndMatchesTodaysBehavior() {
+	void balancedIsTheDefaultPresetAndAddsTheAutoAlphaFloor() {
 		assertEquals(PaintPreset.BALANCED, Settings.SettingsPaintPreset.get());
 
 		PaintPreset.Params params = PaintPreset.BALANCED.getParams();
-		// Generation and click pacing are exactly today's defaults…
-		assertEquals(GeneratorConfig.DEFAULT, params.generator());
+		// S5: BALANCED is the S1 default plus the S2 content-adaptive alpha floor (auto), gated on ab-s5.csv
+		// (pooled win, no per-image loss). Everything else stays the shipped default; click pacing unchanged.
+		assertEquals(GeneratorConfig.DEFAULT.withMinAlphaIndex(GeneratorConfig.MIN_ALPHA_AUTO), params.generator());
+		assertEquals(GeneratorConfig.MIN_ALPHA_AUTO, params.generator().minAlphaIndex());
+		assertFalse(params.generator().useAdaptiveSize(), "S1: adaptive size stays off");
+		assertFalse(params.generator().useSimulatedAnnealing(), "BALANCED is the classic hill climb");
 		assertEquals(30, params.clicksPerSecond());
 		assertEquals(1, params.verifyInterval());
-		// …and pruning only takes verified-FREE drops (maxLoss=0 accepts a
-		// drop only when the true re-rendered score does not increase), so
-		// Balanced is ≥ today's quality at ≤ today's click count.
+		// Pruning only takes verified-FREE drops (maxLoss=0 accepts a drop only when the true re-rendered score
+		// does not increase), so Balanced is ≥ un-pruned quality at ≤ its click count.
 		assertEquals(new BlobPruner.Options(0, 0, 0.0), params.prune());
 	}
 
@@ -59,7 +62,7 @@ class PaintPresetTest {
 		assertEquals(10, blazing.verifyInterval());
 
 		PaintPreset.Params fast = PaintPreset.FAST.getParams();
-		assertEquals(GeneratorConfig.DEFAULT, fast.generator());
+		assertEquals(GeneratorConfig.DEFAULT.withMinAlphaIndex(GeneratorConfig.MIN_ALPHA_AUTO), fast.generator()); // S5 auto floor
 		assertEquals(new BlobPruner.Options(0, 0, 0.01), fast.prune()); // S1 maxLoss=1% row
 		assertEquals(40, fast.clicksPerSecond());
 		assertEquals(5, fast.verifyInterval());
@@ -67,6 +70,7 @@ class PaintPresetTest {
 		PaintPreset.Params max = PaintPreset.MAX_QUALITY.getParams();
 		assertEquals(1000, max.generator().maxRandomStates()); // G3 pre-tune row
 		assertEquals(100, max.generator().age());
+		assertTrue(max.generator().useSimulatedAnnealing()); // S5: sa adopted (ab-s5.csv: wins all 5 images)
 		assertFalse(max.prune().enabled()); // never drops a blob
 		assertEquals(25, max.clicksPerSecond());
 		assertEquals(1, max.verifyInterval());
@@ -88,15 +92,15 @@ class PaintPresetTest {
 	}
 
 	@Test
-	void applyingDefaultsStoresUnsetSoDefaultsKeepTracking() {
+	void applyStoresSnapshotsOrUnsetPerKeyAndRoundTrips() {
 		PaintPreset.BLAZING.apply();
 		PaintPreset.BALANCED.apply();
 
-		// Balanced's generator config IS the default — stored as unset, so a
-		// future default change doesn't leave a stale pinned copy behind.
-		assertNull(Settings.SettingsGeneratorConfig.get());
-		assertEquals(GeneratorConfig.DEFAULT, Settings.getGeneratorConfig());
-		// Max Quality disables pruning entirely — stored as unset.
+		// S5 semantics change: BALANCED's generator now differs from DEFAULT (auto alpha floor), so apply() stores
+		// a full serialized snapshot (not null) — and it must round-trip back to exactly BALANCED's config.
+		assertNotNull(Settings.SettingsGeneratorConfig.get());
+		assertEquals(PaintPreset.BALANCED.getParams().generator(), Settings.getGeneratorConfig());
+		// The disabled-pruning path still stores unset: Max Quality never prunes.
 		PaintPreset.MAX_QUALITY.apply();
 		assertNull(Settings.SettingsPaintPrune.get());
 		assertFalse(Settings.getPaintPruneOptions().enabled());
@@ -133,6 +137,23 @@ class PaintPresetTest {
 				params.verifyInterval(), 1000);
 			assertTrue(millis > previous, preset + " must paint slower than the previous rung");
 			previous = millis;
+		}
+	}
+
+	@Test
+	void noPresetShipsAMeasuredDominatedAlphaConfig() {
+		// Guard the proposals §7 negative results: no preset may ship opaque (minAlpha=5), the dominated floor 2,
+		// or a single global alpha. Opaque stays an explicit per-use stencil toggle only; BLAZING keeps the plain
+		// default floor (draft tier, minimal).
+		for (PaintPreset preset : PaintPreset.values()) {
+			if (preset == PaintPreset.CUSTOM) continue;
+			GeneratorConfig g = preset.getParams().generator();
+			assertNotEquals(5, g.minAlphaIndex(), preset + " must not ship opaque (stencil is a toggle)");
+			assertNotEquals(2, g.minAlphaIndex(), preset + " must not ship the dominated floor 2");
+			assertTrue(g.usePerShapeAlpha(), preset + " must keep per-shape alpha (single global alpha is dominated)");
+			// The two dormant speed knobs stay off in every shipped preset.
+			assertEquals(0.0, g.sizeClickBias(), preset + " must keep sizeClickBias dormant");
+			assertEquals(0.0, g.qualityStop(), preset + " must keep qualityStop dormant");
 		}
 	}
 

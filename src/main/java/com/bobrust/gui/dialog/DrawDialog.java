@@ -131,10 +131,11 @@ public class DrawDialog extends JDialog {
 			}
 			JStyledToggleButton button = new JStyledToggleButton(preset.getDisplayName());
 			button.setToolTipText(switch (preset) {
-				case BLAZING -> "Draft: hard 70% blob budget, fastest clicks, sparse verification";
-				case FAST -> "Adaptive: drops blobs costing <1% quality, faster clicks";
-				case BALANCED -> "Today's quality — only verified-free blobs are skipped";
-				default -> "No pruning, extra search effort, conservative clicks";
+				case BLAZING -> "Draft: hard 70% blob budget, fastest clicks, sparse verification "
+					+ "(≈ −0.015 SSIM vs Balanced at the same clicks)";
+				case FAST -> "Adaptive: per-image alpha floor, drops blobs costing <1% quality, faster clicks";
+				case BALANCED -> "Default: per-image alpha floor (sharper photos), only verified-free blobs skipped";
+				default -> "No pruning, extra search effort (simulated annealing), conservative clicks";
 			});
 			button.addActionListener(event -> applyPreset(preset));
 			presetGroup.add(button);
