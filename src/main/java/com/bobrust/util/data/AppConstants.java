@@ -92,20 +92,6 @@ public interface AppConstants {
 	// calibrated blend regime — kept config-reachable, not default.
 	int MIN_ALPHA_INDEX = 1;
 
-	// DISABLED: 2-opt reorders blobs on palette+travel cost with no awareness of
-	// the sorter's overlap-precedence invariant (a blob may only be painted after
-	// every earlier-generated blob it overlaps). Reversing a segment can swap two
-	// overlapping blobs, so the robot composites them in the wrong order and the
-	// painted sign no longer matches the preview. The travel distance it optimizes
-	// is also free — Robot.mouseMove teleports the cursor. Do not re-enable unless
-	// TwoOptOptimizer is made precedence-aware (only accept reversals whose segment
-	// contains no ordered overlap pair).
-	boolean USE_TSP_OPTIMIZATION = false;
-
-	// TSP cost function weights
-	float TSP_W_PALETTE = 3.0f;   // Weight for palette change cost
-	float TSP_W_DISTANCE = 1.0f;  // Weight for Euclidean distance cost
-
 	// DISABLED: MultiResModel was never wired into BorstGenerator (nothing in
 	// src/main reads this flag or constructs MultiResModel), so the feature does
 	// not exist in the app. MultiResModel also has an up-scaling bug — see the

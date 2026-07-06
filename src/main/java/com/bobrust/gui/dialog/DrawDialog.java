@@ -61,6 +61,8 @@ public class DrawDialog extends JDialog {
 	// S3 preset row + S2 live estimate readout
 	private final Map<PaintPreset, JStyledToggleButton> presetButtons = new EnumMap<>(PaintPreset.class);
 	private final ButtonGroup presetGroup = new ButtonGroup();
+	/** S5/P2b: explicit opaque-paint (stencil) override — the auto alpha classifier can never select it. */
+	private final JCheckBox stencilCheckbox;
 	private final JLabel presetCustomLabel;
 	private final JLabel estimateLabel;
 	private final JLabel estimateDetailLabel;
@@ -140,6 +142,17 @@ public class DrawDialog extends JDialog {
 			presetPanel.add(button);
 		}
 		rootPanel.add(presetPanel);
+
+		// S5/P2b: stencil (opaque) toggle. Opaque paint is dominated on photos but the single biggest measured win
+		// on text/logos (+0.094 SSIM on glyphs), and the auto alpha floor can never pick it (S2, by construction) —
+		// so it is an explicit user choice living beside the presets.
+		stencilCheckbox = new JCheckBox("Stencil (text / logos)");
+		stencilCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+		stencilCheckbox.setFocusable(false);
+		stencilCheckbox.setToolTipText(
+			"Opaque paint only: much sharper text and hard edges, visibly wrong colors on photos. Never chosen automatically.");
+		stencilCheckbox.addActionListener(event -> onStencilToggled());
+		rootPanel.add(stencilCheckbox);
 
 		rootPanel.add(new JLabel("Shape Count"));
 
@@ -237,6 +250,8 @@ public class DrawDialog extends JDialog {
 		// S2: the live estimate readout — replaces the EDT-blocking
 		// "Calculate Exact Time" button. A debounced background worker
 		// recomputes select→prune→sort→estimate off the EDT.
+		// TODO(P4 follow-up): replace the raw shape spinner with a click/time target + predicted-quality readout,
+		// driving the generator's qualityStop auto-stop from a UI curve (docs/SPEED-IMPL-PLAN.md S4).
 		estimateLabel = new JLabel("Estimating…");
 		estimateLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		estimateLabel.setBorder(new EmptyBorder(4, 0, 0, 0));
@@ -294,6 +309,7 @@ public class DrawDialog extends JDialog {
 			if (button != null && !button.isSelected()) {
 				presetGroup.setSelected(button.getModel(), true);
 			}
+			stencilCheckbox.setSelected(Settings.getGeneratorConfig().minAlphaIndex() == 5);
 			presetCustomLabel.setVisible(false);
 		} finally {
 			suppressDirty = false;
@@ -301,6 +317,31 @@ public class DrawDialog extends JDialog {
 
 		if (monitor != null && !Settings.getGeneratorConfig().equals(before)) {
 			LOGGER.info("Preset {} changed the generator config, restarting generation", preset);
+			restartGenerationFresh();
+		}
+		scheduleEstimate();
+	}
+
+	/**
+	 * S5/P2b: the stencil toggle. ON forces the opaque alpha floor ({@code minAlpha=5}) as a hand-tweak (opaque is a
+	 * deliberate override, not a preset); OFF restores the active non-CUSTOM preset's floor, else the shipped
+	 * default. Either way the generation config changed, so the model is stale — restart fresh, same contract as
+	 * {@link #applyPreset}. {@code setSelected} does not fire this listener, so the sync paths can set the box freely.
+	 */
+	private void onStencilToggled() {
+		GeneratorConfig current = Settings.getGeneratorConfig();
+		if (stencilCheckbox.isSelected()) {
+			Settings.SettingsGeneratorConfig.set(current.withMinAlphaIndex(5).serialize());
+			markCustom();
+		} else {
+			PaintPreset preset = Settings.SettingsPaintPreset.get();
+			int floor = (preset != PaintPreset.CUSTOM && preset.getParams() != null)
+				? preset.getParams().generator().minAlphaIndex()
+				: AppConstants.MIN_ALPHA_INDEX;
+			Settings.SettingsGeneratorConfig.set(current.withMinAlphaIndex(floor).serialize());
+			// preset-restore is not a hand-tweak -> deliberately no markCustom()
+		}
+		if (monitor != null) {
 			restartGenerationFresh();
 		}
 		scheduleEstimate();
@@ -335,6 +376,7 @@ public class DrawDialog extends JDialog {
 			if (button != null) {
 				presetGroup.setSelected(button.getModel(), true);
 			}
+			stencilCheckbox.setSelected(Settings.getGeneratorConfig().minAlphaIndex() == 5);
 			presetCustomLabel.setVisible(preset == PaintPreset.CUSTOM);
 		} finally {
 			suppressDirty = false;
