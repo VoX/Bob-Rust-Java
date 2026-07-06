@@ -2,6 +2,8 @@ package com.bobrust.robot;
 
 import java.awt.*;
 import java.awt.event.InputEvent;
+import java.awt.image.BufferedImage;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.BiConsumer;
 
@@ -22,12 +24,17 @@ public class BobRustPainter {
 	// The maximum distance the mouse can be from the correct position
 	private static final double MAXIMUM_DISPLACEMENT = 10;
 	private static final boolean ALLOW_PRESSES = true;
-	
+	// Radius of the pixel disc sampled around the color preview point when
+	// verifying a color change. A single pixel is too fragile when the
+	// configured point is a few pixels off the actual swatch.
+	private static final int COLOR_PREVIEW_RADIUS = 5;
+
 	private final BobRustPalette palette;
 	private int displayX;
 	private int displayY;
 	private double widthDelta;
 	private double heightDelta;
+	private Rectangle screenBounds;
 	
 	// Exception
 	private int drawnShapes;
@@ -59,6 +66,9 @@ public class BobRustPainter {
 			displayY = bounds.y;
 			widthDelta = bounds.getWidth() / (double)gd.getDisplayMode().getWidth();
 			heightDelta = bounds.getHeight() / (double)gd.getDisplayMode().getHeight();
+			// The color preview is read in monitor local coordinates, the same
+			// space the getPixelColor calls use. Captures are clamped to this
+			screenBounds = new Rectangle(0, 0, bounds.width, bounds.height);
 		}
 		
 		Sign signType = Settings.SettingsSign.get();
@@ -312,19 +322,131 @@ public class BobRustPainter {
 		}
 	}
 	
+	/**
+	 * Click a color swatch and verify that the change registered by watching
+	 * the color preview. A small disc of pixels around the configured preview
+	 * point is captured once before the clicks and compared after each click —
+	 * if any sampled pixel changed the color change is treated as successful.
+	 * Falls back to the old single pixel check if the region cannot be captured.
+	 */
 	private void clickColor(Robot robot, Point point, int maxAttempts, double delay) throws PaintingInterrupted {
 		Point colorPreview = palette.getColorPreview();
-		Color before = robot.getPixelColor(colorPreview.x, colorPreview.y);
-		
-		// Make sure that we press the size
-		while (maxAttempts-- > 0) {
-			clickPoint(robot, point, delay);
-			
-			Color after = robot.getPixelColor(colorPreview.x, colorPreview.y);
-			if (!before.equals(after)) {
-				return;
+
+		Rectangle region = getPreviewRegion(colorPreview);
+		int[] before = (region != null) ? capturePreviewDisc(robot, region, colorPreview) : null;
+
+		if (before == null || before.length == 0) {
+			Color beforePixel = robot.getPixelColor(colorPreview.x, colorPreview.y);
+
+			while (maxAttempts-- > 0) {
+				clickPoint(robot, point, delay);
+
+				Color after = robot.getPixelColor(colorPreview.x, colorPreview.y);
+				if (!beforePixel.equals(after)) {
+					return;
+				}
+			}
+		} else {
+			while (maxAttempts-- > 0) {
+				clickPoint(robot, point, delay);
+
+				int[] after = capturePreviewDisc(robot, region, colorPreview);
+				if (after == null) {
+					// The screen capture stopped working mid verify. Retrying
+					// would burn the remaining attempts without verification
+					LOGGER.warn("Could not capture the color preview region! Skipping color verification");
+					return;
+				}
+
+				if (regionChanged(before, after)) {
+					return;
+				}
 			}
 		}
+
+		LOGGER.warn("Potentially failed to select color! Will still keep trying to draw");
+	}
+
+	/**
+	 * Compute the capture rectangle around the color preview point, clamped to
+	 * the monitor bounds. Returns {@code null} if nothing of it is on screen.
+	 */
+	private Rectangle getPreviewRegion(Point center) {
+		if (screenBounds == null) {
+			return null;
+		}
+
+		Rectangle rect = new Rectangle(
+			center.x - COLOR_PREVIEW_RADIUS,
+			center.y - COLOR_PREVIEW_RADIUS,
+			COLOR_PREVIEW_RADIUS * 2 + 1,
+			COLOR_PREVIEW_RADIUS * 2 + 1
+		);
+		Rectangle clamped = rect.intersection(screenBounds);
+		return (clamped.width > 0 && clamped.height > 0) ? clamped : null;
+	}
+
+	/**
+	 * Capture the preview region with a single screen read and keep only the
+	 * pixels within {@link #COLOR_PREVIEW_RADIUS} of the preview point.
+	 * Returns {@code null} if the screen could not be captured.
+	 */
+	private int[] capturePreviewDisc(Robot robot, Rectangle region, Point center) {
+		BufferedImage image;
+		try {
+			image = robot.createScreenCapture(region);
+		} catch (RuntimeException e) {
+			LOGGER.warn("Failed to capture the color preview region: {}", e.toString());
+			return null;
+		}
+
+		if (image == null) {
+			return null;
+		}
+
+		return extractDisc(image, center.x - region.x, center.y - region.y, COLOR_PREVIEW_RADIUS);
+	}
+
+	/**
+	 * Extract the pixels within {@code radius} (Euclidean) of the center point,
+	 * in row major order. The center is in image coordinates and may lie
+	 * outside the image when the capture was clamped to the screen edge.
+	 */
+	static int[] extractDisc(BufferedImage image, int centerX, int centerY, int radius) {
+		int radiusSq = radius * radius;
+		int[] pixels = new int[image.getWidth() * image.getHeight()];
+		int count = 0;
+
+		for (int y = 0; y < image.getHeight(); y++) {
+			for (int x = 0; x < image.getWidth(); x++) {
+				int dx = x - centerX;
+				int dy = y - centerY;
+				if (dx * dx + dy * dy <= radiusSq) {
+					pixels[count++] = image.getRGB(x, y);
+				}
+			}
+		}
+
+		return Arrays.copyOf(pixels, count);
+	}
+
+	/**
+	 * Returns {@code true} if any sampled pixel differs between the two
+	 * captures. Null, empty or mismatched captures give {@code false} —
+	 * no evidence of a change.
+	 */
+	static boolean regionChanged(int[] before, int[] after) {
+		if (before == null || after == null || before.length != after.length) {
+			return false;
+		}
+
+		for (int i = 0; i < before.length; i++) {
+			if (before[i] != after[i]) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 	
 	/**
