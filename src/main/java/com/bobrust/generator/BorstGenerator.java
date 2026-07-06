@@ -26,9 +26,16 @@ public class BorstGenerator {
 	}
 	
 	/**
-	 * Start the generator
+	 * Start the generator with the default {@link GeneratorConfig}
 	 */
 	public synchronized boolean start(Model previous, BufferedImage inputImage, int maxShapes, int callbackInterval, int background, int alpha) {
+		return start(previous, inputImage, maxShapes, callbackInterval, background, alpha, GeneratorConfig.DEFAULT);
+	}
+
+	/**
+	 * Start the generator
+	 */
+	public synchronized boolean start(Model previous, BufferedImage inputImage, int maxShapes, int callbackInterval, int background, int alpha, GeneratorConfig config) {
 		if (thread != null) {
 			LOGGER.warn("BorstGenerator has already been started! Restarting generator");
 			
@@ -49,7 +56,7 @@ public class BorstGenerator {
 		
 		if (previous == null) {
 			BorstImage image = new BorstImage(inputImage);
-			model = new Model(image, background, alpha);
+			model = new Model(image, background, alpha, config);
 			data.clear();
 		} else {
 			model = previous;

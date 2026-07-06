@@ -80,7 +80,28 @@ dependencies {
 }
 
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        // The F1 benchmark harness is opt-in — see the 'benchmark' task
+        excludeTags 'benchmark'
+    }
+}
+
+// F1 benchmark harness (see GenerationBenchmarkTest for -Dbench.* options):
+//   ./gradlew benchmark -Dbench.shapes=500 -Dbench.configA="sa=true" -Dbench.configB="sa=false"
+tasks.register('benchmark', Test) {
+    description = 'Runs the opt-in generation benchmark harness (F1)'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'benchmark'
+    }
+    // Forward -Dbench.* from the gradle invocation to the test JVM
+    systemProperties System.properties.findAll { it.key.toString().startsWith('bench.') }
+    testLogging {
+        showStandardStreams = true
+    }
+    outputs.upToDateWhen { false }
 }
 
 

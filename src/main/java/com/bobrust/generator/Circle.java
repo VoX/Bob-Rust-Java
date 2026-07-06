@@ -1,7 +1,5 @@
 package com.bobrust.generator;
 
-import com.bobrust.util.data.AppConstants;
-
 import java.util.Random;
 
 public class Circle {
@@ -30,7 +28,8 @@ public class Circle {
 		int w = worker.w - 1;
 		int h = worker.h - 1;
 		Random rnd = worker.getRandom();
-		GradientMap gradientMap = AppConstants.USE_ADAPTIVE_SIZE ? worker.getGradientMap() : null;
+		// Only non-null when the model's config has adaptive sizing enabled
+		GradientMap gradientMap = worker.getGradientMap();
 
 		if (rnd.nextInt(3) == 0) {
 			// Mutate position — scale perturbation by local gradient
@@ -76,7 +75,7 @@ public class Circle {
 			this.y = rnd.nextInt(worker.h);
 		}
 
-		GradientMap gradientMap = AppConstants.USE_ADAPTIVE_SIZE ? worker.getGradientMap() : null;
+		GradientMap gradientMap = worker.getGradientMap();
 		if (gradientMap != null) {
 			int sizeIdx = gradientMap.selectSizeIndex(rnd, this.x, this.y);
 			this.r = BorstUtils.SIZES[sizeIdx];

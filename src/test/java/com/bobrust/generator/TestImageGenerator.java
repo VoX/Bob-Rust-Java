@@ -10,11 +10,11 @@ import javax.imageio.ImageIO;
  * Utility to programmatically generate test images for benchmarks.
  * All images are 128x128 to keep test times reasonable.
  */
-class TestImageGenerator {
-	static final int SIZE = 128;
+public class TestImageGenerator {
+	public static final int SIZE = 128;
 
 	/** Solid red image */
-	static BufferedImage createSolid() {
+	public static BufferedImage createSolid() {
 		BufferedImage img = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = img.createGraphics();
 		g.setColor(new Color(200, 50, 50));
@@ -24,7 +24,7 @@ class TestImageGenerator {
 	}
 
 	/** Horizontal gradient from blue to green */
-	static BufferedImage createGradient() {
+	public static BufferedImage createGradient() {
 		BufferedImage img = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
 		for (int x = 0; x < SIZE; x++) {
 			float t = x / (float) (SIZE - 1);
@@ -40,7 +40,7 @@ class TestImageGenerator {
 	}
 
 	/** High-contrast black/white edges — checkerboard pattern */
-	static BufferedImage createEdges() {
+	public static BufferedImage createEdges() {
 		BufferedImage img = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
 		int blockSize = 16;
 		for (int y = 0; y < SIZE; y++) {
@@ -53,7 +53,7 @@ class TestImageGenerator {
 	}
 
 	/** Simulated photo with fine detail — concentric circles of varying colors */
-	static BufferedImage createPhotoDetail() {
+	public static BufferedImage createPhotoDetail() {
 		BufferedImage img = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
 		int cx = SIZE / 2;
 		int cy = SIZE / 2;
@@ -70,7 +70,7 @@ class TestImageGenerator {
 	}
 
 	/** Natural scene approximation — overlapping gradients and shapes */
-	static BufferedImage createNature() {
+	public static BufferedImage createNature() {
 		BufferedImage img = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = img.createGraphics();
 		// Sky gradient

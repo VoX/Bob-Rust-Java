@@ -4,17 +4,16 @@ import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class Worker {
-	/**
-	 * Fixed seed so generation is reproducible for a given (image, settings)
-	 * input. All RNG consumers (Circle.randomize, Circle.mutateShape and the
-	 * SA acceptance draws) run on the single generator thread — the parallel
-	 * energy evaluation is RNG-free — so one seeded instance per worker is
-	 * both deterministic and contention-free.
-	 */
-	private static final long RANDOM_SEED = 0;
-
 	private final BorstImage target;
-	private final Random random = new Random(RANDOM_SEED);
+	private final GeneratorConfig config;
+	/**
+	 * Seeded from {@link GeneratorConfig#seed()} so generation is reproducible
+	 * for a given (image, config) input. All RNG consumers (Circle.randomize,
+	 * Circle.mutateShape and the SA acceptance draws) run on the single
+	 * generator thread — the parallel energy evaluation is RNG-free — so one
+	 * seeded instance per worker is both deterministic and contention-free.
+	 */
+	private final Random random;
 	private BorstImage current;
 	public final int alpha;
 
@@ -26,10 +25,21 @@ class Worker {
 	private GradientMap gradientMap;
 
 	public Worker(BorstImage target, int alpha) {
+		this(target, alpha, GeneratorConfig.DEFAULT);
+	}
+
+	public Worker(BorstImage target, int alpha, GeneratorConfig config) {
 		this.w = target.width;
 		this.h = target.height;
 		this.target = target;
 		this.alpha = alpha;
+		this.config = config;
+		this.random = new Random(config.seed());
+	}
+
+	/** Returns the runtime generator configuration this worker was created with. */
+	public GeneratorConfig getConfig() {
+		return config;
 	}
 
 	/** Returns the error map, or null if error-guided placement is disabled. */
@@ -70,7 +80,7 @@ class Worker {
 	public float getEnergy(Circle circle) {
 		this.counter.incrementAndGet();
 		int cache_index = BorstUtils.getClosestSizeIndex(circle.r);
-		return BorstCore.differencePartialThread(target, current, totalError, alpha, cache_index, circle.x, circle.y);
+		return BorstCore.differencePartialThread(target, current, totalError, alpha, cache_index, circle.x, circle.y, config.useBatchParallel());
 	}
 
 	public int getCounter() {

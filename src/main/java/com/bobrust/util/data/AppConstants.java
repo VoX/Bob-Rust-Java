@@ -25,6 +25,12 @@ public interface AppConstants {
 	boolean DEBUG_TIME = false;
 	int MAX_SORT_GROUP = 1000; // Max 1000 elements per sort
 
+	// NOTE: The four USE_* generator flags below are no longer read directly by
+	// the generator — they are the DEFAULT values of the runtime GeneratorConfig
+	// (com.bobrust.generator.GeneratorConfig), which is what Model/Worker/
+	// HillClimbGenerator actually consult. Override at runtime through the
+	// SettingsGeneratorConfig property or the benchmark harness.
+
 	// When true, use simulated annealing instead of pure hill climbing for shape optimization
 	boolean USE_SIMULATED_ANNEALING = true;
 

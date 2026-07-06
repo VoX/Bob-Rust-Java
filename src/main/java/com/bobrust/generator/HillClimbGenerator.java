@@ -39,7 +39,7 @@ class HillClimbGenerator {
 
 	/**
 	 * Original hill climbing implementation. Kept as fallback when
-	 * {@link AppConstants#USE_SIMULATED_ANNEALING} is false.
+	 * {@link GeneratorConfig#useSimulatedAnnealing()} is false.
 	 */
 	public static State getHillClimbClassic(State state, int maxAge) {
 		float minimumEnergy = state.getEnergy();
@@ -121,10 +121,11 @@ class HillClimbGenerator {
 	}
 
 	/**
-	 * Dispatches to SA or classic hill climbing based on the feature flag.
+	 * Dispatches to SA or classic hill climbing based on the worker's
+	 * runtime configuration.
 	 */
 	public static State getHillClimb(State state, int maxAge) {
-		if (AppConstants.USE_SIMULATED_ANNEALING) {
+		if (state.getWorker().getConfig().useSimulatedAnnealing()) {
 			return getHillClimbSA(state, maxAge);
 		} else {
 			return getHillClimbClassic(state, maxAge);

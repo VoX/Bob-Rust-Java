@@ -1,7 +1,5 @@
 package com.bobrust.generator;
 
-import com.bobrust.util.data.AppConstants;
-
 class BorstCore {
 	static BorstColor computeColor(BorstImage target, BorstImage current, int alpha, int size, int x_offset, int y_offset) {
 		long rsum_1 = 0;
@@ -221,8 +219,8 @@ class BorstCore {
 		return total;
 	}
 
-	static float differencePartialThread(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset) {
-		if (AppConstants.USE_BATCH_PARALLEL) {
+	static float differencePartialThread(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset, boolean useBatchParallel) {
+		if (useBatchParallel) {
 			return differencePartialThreadCombined(target, before, baseTotal, alpha, size, x_offset, y_offset);
 		}
 		return differencePartialThreadClassic(target, before, baseTotal, alpha, size, x_offset, y_offset);

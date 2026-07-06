@@ -351,7 +351,8 @@ public class DrawDialog extends JDialog {
 			Settings.SettingsMaxShapes.get(),
 			Settings.EditorCallbackInterval.get(),
 			bgColor.getRGB(),
-			BorstUtils.ALPHAS[Settings.SettingsAlpha.get()]
+			BorstUtils.ALPHAS[Settings.SettingsAlpha.get()],
+			Settings.getGeneratorConfig()
 		)) {
 			if (previousBorstModel == null) {
 				parent.shapeRender.reset();

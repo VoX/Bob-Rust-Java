@@ -2,6 +2,7 @@ package com.bobrust.settings;
 
 import java.awt.*;
 
+import com.bobrust.generator.GeneratorConfig;
 import com.bobrust.lang.RustUI;
 import com.bobrust.settings.data.ScalingType;
 import com.bobrust.settings.type.*;
@@ -86,10 +87,27 @@ public interface Settings {
 		label = RustUI.Type.SETTINGS_USEICCCONVERSION_LABEL,
 		tooltip = RustUI.Type.SETTINGS_USEICCCONVERSION_TOOLTIP)
 	BoolType SettingsUseICCConversion = new BoolType(false);
-	
+
+	/**
+	 * Serialized {@link GeneratorConfig} ({@code key=value;...}, see
+	 * {@link GeneratorConfig#serialize()}). Not exposed in the GUI — edit the
+	 * config file directly to override generator internals (seed, SA toggle,
+	 * candidate count, ...). Unset means {@link GeneratorConfig#DEFAULT}.
+	 */
+	StringType SettingsGeneratorConfig = new StringType(null);
+
 	// Used for internal save state
 	InternalSettings InternalSettings = new InternalSettings();
 	
+	/**
+	 * The runtime generator configuration: the persisted
+	 * {@link #SettingsGeneratorConfig} string when set, otherwise
+	 * {@link GeneratorConfig#DEFAULT} (missing keys also fall back per key).
+	 */
+	static GeneratorConfig getGeneratorConfig() {
+		return GeneratorConfig.parse(SettingsGeneratorConfig.get());
+	}
+
 	static Color getSettingsBackgroundCalculated() {
 		Color color = SettingsBackground.get();
 		if (color == null) {

@@ -1,7 +1,5 @@
 package com.bobrust.generator;
 
-import com.bobrust.util.data.AppConstants;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -11,6 +9,7 @@ import java.util.List;
  */
 public class Model {
 	private final Worker worker;
+	private final GeneratorConfig config;
 	private final BorstImage target;
 	private final BorstImage context;
 	private final BorstImage beforeImage;
@@ -34,6 +33,10 @@ public class Model {
 	private GradientMap gradientMap;
 
 	public Model(BorstImage target, int backgroundRGB, int alpha) {
+		this(target, backgroundRGB, alpha, GeneratorConfig.DEFAULT);
+	}
+
+	public Model(BorstImage target, int backgroundRGB, int alpha, GeneratorConfig config) {
 		int w = target.width;
 		int h = target.height;
 		this.shapes = new ArrayList<>();
@@ -41,6 +44,7 @@ public class Model {
 		this.target = target;
 		this.width = w;
 		this.height = h;
+		this.config = config;
 
 		this.current = new BorstImage(w, h);
 		Arrays.fill(this.current.pixels, backgroundRGB);
@@ -49,18 +53,18 @@ public class Model {
 		this.totalError = BorstCore.differenceFullTotal(target, current);
 		this.score = BorstCore.scoreFromTotal(totalError, w, h);
 		this.context = new BorstImage(w, h);
-		this.worker = new Worker(target, alpha);
+		this.worker = new Worker(target, alpha, config);
 		this.alpha = alpha;
 
 		// Initialize error map if error-guided placement is enabled
-		if (AppConstants.USE_ERROR_GUIDED_PLACEMENT) {
+		if (config.useErrorGuidedPlacement()) {
 			this.errorMap = new ErrorMap(w, h);
 			this.errorMap.computeFull(target, current);
 			this.worker.setErrorMap(this.errorMap);
 		}
 
 		// Initialize gradient map if adaptive size selection is enabled
-		if (AppConstants.USE_ADAPTIVE_SIZE) {
+		if (config.useAdaptiveSize()) {
 			this.gradientMap = new GradientMap(w, h);
 			this.gradientMap.compute(target);
 			this.worker.setGradientMap(this.gradientMap);
@@ -110,22 +114,21 @@ public class Model {
 		return worker;
 	}
 
-	private static final int max_random_states = 1000;
-	private static final int age = 100;
+	// max_random_states and age moved to GeneratorConfig (defaults 1000 / 100)
 	private static final int times = 1; // SA explores well enough without multiple chains; keeps speed comparable to original
-	
+
 	private List<State> randomStates;
-	
+
 	public int processStep() {
 		worker.init(current, totalError);
 		if (randomStates == null) {
 			randomStates = new ArrayList<>();
-			for (int i = 0; i < max_random_states; i++) {
+			for (int i = 0; i < config.maxRandomStates(); i++) {
 				randomStates.add(new State(worker));
 			}
 		}
-		
-		State state = HillClimbGenerator.getBestHillClimbState(randomStates, age, times, errorMap);
+
+		State state = HillClimbGenerator.getBestHillClimbState(randomStates, config.age(), times, errorMap);
 		addShape(state.shape);
 
 		return worker.getCounter();
