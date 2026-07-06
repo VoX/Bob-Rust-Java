@@ -150,14 +150,23 @@ public class ScreenshotAnalyzer {
 		for (long v : proj) totalEnergy += v;
 		if (totalEnergy == 0) return null;
 
-		// Divide the array into numPeaks bins
+		// Trim to the nonzero-energy support before binning. Equal bins over the FULL frame assume the
+		// grid fills it edge-to-edge; any margin/HUD around the sign otherwise pushes the first/last bin
+		// centroids onto partial columns or noise and corrupts the whole scale/offset transform.
+		int lo = 0;
+		while (lo < len && proj[lo] <= 0) lo++;
+		int hi = len - 1;
+		while (hi > lo && proj[hi] <= 0) hi--;
+		int span = hi - lo + 1;
+
+		// Divide the support into numPeaks bins
 		int[] peaks = new int[numPeaks];
-		double binSize = (double) len / numPeaks;
+		double binSize = (double) span / numPeaks;
 
 		for (int i = 0; i < numPeaks; i++) {
-			int binStart = (int)(i * binSize);
-			int binEnd = (int)((i + 1) * binSize);
-			binEnd = Math.min(binEnd, len);
+			int binStart = lo + (int)(i * binSize);
+			int binEnd = lo + (int)((i + 1) * binSize);
+			binEnd = Math.min(binEnd, hi + 1);
 
 			long sumPos = 0, sumWeight = 0;
 			for (int j = binStart; j < binEnd; j++) {
@@ -196,8 +205,11 @@ public class ScreenshotAnalyzer {
 		int expectedCX = mapX(CalibrationPatternGenerator.getCellCenterX(col));
 		int expectedCY = mapY(CalibrationPatternGenerator.getCellCenterY(row));
 
-		// Find actual centroid near expected position
-		int[] centroid = findCentroidNear(expectedCX, expectedCY, SEARCH_RADIUS);
+		// Find actual centroid near expected position. The search window must scale with the capture
+		// (scaleX/scaleY) — a fixed radius bleeds into adjacent cells when the sign is captured smaller
+		// than the reference, dragging the detected centre onto a neighbour's circle.
+		int searchR = Math.max(4, (int) Math.round(SEARCH_RADIUS * Math.min(scaleX, scaleY)));
+		int[] centroid = findCentroidNear(expectedCX, expectedCY, searchR);
 		if (centroid == null) {
 			detected[row][col] = false;
 			return;
@@ -209,15 +221,17 @@ public class ScreenshotAnalyzer {
 		detectedCX[row][col] = cx;
 		detectedCY[row][col] = cy;
 
-		// Measure bounding box of painted pixels around centroid.
-		// Limit search to half the cell spacing minus a margin to avoid bleeding
-		// into neighboring cells.
-		int halfCell = CalibrationPatternGenerator.CELL_SPACING / 2 - 5;
+		// Measure bounding box of painted pixels around the centroid. The window scales with the capture
+		// (scaleX/scaleY) so it can measure a circle painted LARGER than the reference (the exact bloom the
+		// tool exists to detect) and doesn't reach into neighbours when the sign is captured smaller.
+		int baseHalf = CalibrationPatternGenerator.CELL_SPACING / 2 - 5;
+		int halfCellX = Math.max(2, (int) Math.round(baseHalf * scaleX));
+		int halfCellY = Math.max(2, (int) Math.round(baseHalf * scaleY));
 		int minPX = Integer.MAX_VALUE, maxPX = Integer.MIN_VALUE;
 		int minPY = Integer.MAX_VALUE, maxPY = Integer.MIN_VALUE;
 
-		for (int dy = -halfCell; dy <= halfCell; dy++) {
-			for (int dx = -halfCell; dx <= halfCell; dx++) {
+		for (int dy = -halfCellY; dy <= halfCellY; dy++) {
+			for (int dx = -halfCellX; dx <= halfCellX; dx++) {
 				int px = cx + dx;
 				int py = cy + dy;
 				if (px < 0 || px >= imgW || py < 0 || py >= imgH) continue;
@@ -298,36 +312,26 @@ public class ScreenshotAnalyzer {
 		Scanline[] expected = CircleCache.CIRCLE_CACHE[sizeIdx];
 		int size = BorstUtils.SIZES[sizeIdx];
 
-		int totalExpected = 0;
-		int matched = 0;
+		// The reference mask (CIRCLE_CACHE) is at reference scale; the screenshot circle is at scaleX/scaleY.
+		// Walk the screenshot-space box once and map each sample BACK to reference space to test the mask, so
+		// misses + false positives are counted correctly at any capture scale (not just an exact 1:1 capture).
+		double sx = scaleX > 0 ? scaleX : 1.0;
+		double sy = scaleY > 0 ? scaleY : 1.0;
+		int halfX = Math.max(2, (int) Math.round((size / 2.0 + 2) * sx));
+		int halfY = Math.max(2, (int) Math.round((size / 2.0 + 2) * sy));
 
-		// Count total expected pixels and check which ones are painted in the screenshot
-		for (Scanline sl : expected) {
-			for (int x = sl.x1; x <= sl.x2; x++) {
-				totalExpected++;
-				int px = cx + x;
-				int py = cy + sl.y;
-				if (px >= 0 && px < imgW && py >= 0 && py < imgH) {
-					if (brightness(screenshot.getRGB(px, py)) > PAINT_THRESHOLD) {
-						matched++;
-					}
-				}
-			}
-		}
-
-		// Also count false positives: painted pixels NOT in the expected mask
-		int halfSize = size / 2 + 2;
-		int falsePositives = 0;
-		int totalChecked = 0;
-		for (int dy = -halfSize; dy <= halfSize; dy++) {
-			for (int dx = -halfSize; dx <= halfSize; dx++) {
+		int totalExpected = 0, matched = 0, falsePositives = 0;
+		for (int dy = -halfY; dy <= halfY; dy++) {
+			for (int dx = -halfX; dx <= halfX; dx++) {
 				int px = cx + dx;
 				int py = cy + dy;
 				if (px < 0 || px >= imgW || py < 0 || py >= imgH) continue;
-				totalChecked++;
+				boolean isExpected = isInScanlines(expected, (int) Math.round(dx / sx), (int) Math.round(dy / sy));
 				boolean isPainted = brightness(screenshot.getRGB(px, py)) > PAINT_THRESHOLD;
-				boolean isExpected = isInScanlines(expected, dx, dy);
-				if (isPainted && !isExpected) {
+				if (isExpected) {
+					totalExpected++;
+					if (isPainted) matched++;
+				} else if (isPainted) {
 					falsePositives++;
 				}
 			}

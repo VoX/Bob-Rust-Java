@@ -29,8 +29,9 @@ public class CalibrationPatternGenerator {
 
 	/** Padding around the entire grid in pixels. */
 	public static final int GRID_PADDING = 8;
-	/** Spacing between cell centers. Must be > largest circle diameter. */
-	public static final int CELL_SPACING = 110;
+	/** Spacing between cell centers. Must be comfortably > largest circle diameter (100px) so real paint
+	 *  bloom + antialiasing on a Rust screenshot can't push one cell's mass into a neighbour's window. */
+	public static final int CELL_SPACING = 140;
 
 	/**
 	 * Generate the calibration pattern image.

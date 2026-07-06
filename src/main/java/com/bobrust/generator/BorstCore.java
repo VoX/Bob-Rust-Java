@@ -142,7 +142,7 @@ class BorstCore {
 
 	static float scoreFromTotal(long total, int w, int h, boolean perceptual) {
 		int weightSum = perceptual ? BorstUtils.PERCEPTUAL_WEIGHT_SUM : 4;
-		return (float)(Math.sqrt(total / (w * h * (double)weightSum)) / 255.0);
+		return (float)(Math.sqrt(total / ((double) w * h * weightSum)) / 255.0); // (double) first: w*h as int overflows for >2^31-px images
 	}
 
 	static float differenceFull(BorstImage a, BorstImage b) {

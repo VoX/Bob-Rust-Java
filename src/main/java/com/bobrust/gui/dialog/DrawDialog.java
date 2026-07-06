@@ -635,26 +635,32 @@ public class DrawDialog extends JDialog {
 	}
 
 	private void onBorstData(BorstGenerator.BorstData data) {
-		parent.repaint();
+		// Invoked on the off-EDT "Borst Generator Thread". Everything below mutates Swing state
+		// (repaint, slider bounds/value, labels, topPanel) and toggles suppressDirty which the
+		// slider's change-listener reads, so marshal the whole callback onto the EDT — otherwise it
+		// violates Swing's single-thread rule and suppressDirty can be seen stale (spuriously
+		// flipping the preset to "Custom" or dropping a real user edit).
+		SwingUtilities.invokeLater(() -> {
+			parent.repaint();
 
-		suppressDirty = true;
-		try {
-			if (shapesSlider.getValue() == shapesSlider.getMaximum()) {
-				shapesSlider.setMaximum(data.getIndex());
-				shapesSlider.setValue(data.getIndex());
-			} else {
-				shapesSlider.setMaximum(data.getIndex());
+			suppressDirty = true;
+			try {
+				if (shapesSlider.getValue() == shapesSlider.getMaximum()) {
+					shapesSlider.setMaximum(data.getIndex());
+					shapesSlider.setValue(data.getIndex());
+				} else {
+					shapesSlider.setMaximum(data.getIndex());
+				}
+			} finally {
+				suppressDirty = false;
 			}
-		} finally {
-			suppressDirty = false;
-		}
 
-		parent.topPanel.setGeneratedShapes(shapesSlider.getValue(), data.getIndex());
-		maxShapeLabel.setText(Integer.toString(data.getIndex()));
+			parent.topPanel.setGeneratedShapes(shapesSlider.getValue(), data.getIndex());
+			maxShapeLabel.setText(Integer.toString(data.getIndex()));
 
-		// Refresh the live estimate as generation progresses (debounced;
-		// the timer is a Swing timer so poke it from the EDT).
-		SwingUtilities.invokeLater(this::scheduleEstimate);
+			// Refresh the live estimate as generation progresses (debounced).
+			scheduleEstimate();
+		});
 	}
 
 	public void openDialog(GraphicsConfiguration monitor, Point point) {
