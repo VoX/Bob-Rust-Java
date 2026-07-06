@@ -35,21 +35,30 @@ public interface AppConstants {
 	// small circles near edges/detail, large circles in smooth areas
 	boolean USE_ADAPTIVE_SIZE = true;
 
-	// When true, use batch-parallel energy evaluation with combined color+energy pass,
-	// spatial batching for cache locality, and precomputed alpha blend tables
+	// When true, use the combined single-pass color+energy evaluation in
+	// BorstCore.differencePartialThread (verified byte-identical to the classic
+	// two-pass implementation by BatchParallelEnergyTest)
 	boolean USE_BATCH_PARALLEL = true;
 
-	// When true, apply 2-opt local search on top of greedy BorstSorter output
-	// to reduce total cost (palette changes + cursor travel distance)
-	boolean USE_TSP_OPTIMIZATION = true;
+	// DISABLED: 2-opt reorders blobs on palette+travel cost with no awareness of
+	// the sorter's overlap-precedence invariant (a blob may only be painted after
+	// every earlier-generated blob it overlaps). Reversing a segment can swap two
+	// overlapping blobs, so the robot composites them in the wrong order and the
+	// painted sign no longer matches the preview. The travel distance it optimizes
+	// is also free — Robot.mouseMove teleports the cursor. Do not re-enable unless
+	// TwoOptOptimizer is made precedence-aware (only accept reversals whose segment
+	// contains no ordered overlap pair).
+	boolean USE_TSP_OPTIMIZATION = false;
 
 	// TSP cost function weights
 	float TSP_W_PALETTE = 3.0f;   // Weight for palette change cost
 	float TSP_W_DISTANCE = 1.0f;  // Weight for Euclidean distance cost
 
-	// When true, use progressive multi-resolution generation:
-	// first 10% shapes at quarter res, next 30% at half res, remaining 60% at full res
-	boolean USE_PROGRESSIVE_RESOLUTION = true;
+	// DISABLED: MultiResModel was never wired into BorstGenerator (nothing in
+	// src/main reads this flag or constructs MultiResModel), so the feature does
+	// not exist in the app. MultiResModel also has an up-scaling bug — see the
+	// TODO in MultiResModel.scaleCircle — that must be fixed before wiring it in.
+	boolean USE_PROGRESSIVE_RESOLUTION = false;
 	
 	// Average canvas colors. Used as default colors
 	Color CANVAS_AVERAGE = new Color(0xb3aba0);

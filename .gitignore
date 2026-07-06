@@ -25,3 +25,6 @@ bin/
 bobrust.properties
 hs_err_pid*.log
 button_config.json
+
+# regenerated test artifacts (tests write under build/test-output/)
+test-results/

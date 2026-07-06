@@ -54,7 +54,7 @@ class ErrorGuidedPlacementTest {
 		}
 
 		for (int i = 0; i < maxShapes; i++) {
-			worker.init(model.current, model.score);
+			worker.init(model.current, model.getTotalError());
 			List<State> randomStates = createRandomStates(worker, 200);
 			State best = getBestRandomState(randomStates, errorMap);
 			State state = HillClimbGenerator.getHillClimbClassic(best, 100);

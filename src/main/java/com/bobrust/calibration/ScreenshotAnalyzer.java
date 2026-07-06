@@ -486,9 +486,25 @@ public class ScreenshotAnalyzer {
 		// Suggested corrections
 		System.out.println();
 		System.out.println("--- Suggested Corrections ---");
+		System.out.printf("(Suggested SIZES are converted back to sign-pixel space using scaleX=%.3f)%n", scaleX);
+		System.out.println("(Measured alphas assume an unlit, gamma-neutral screenshot; in-game sign");
+		System.out.println(" lighting will skew center brightness — capture with neutral lighting.)");
 		printSuggestedSizes();
 		printSuggestedAlphas();
 		printJavaSnippet();
+	}
+
+	/**
+	 * Convert a measured diameter from screenshot-pixel space back to
+	 * sign-pixel space. SIZES values live in sign-pixel space, but the
+	 * measurements are taken on the screenshot, which is scaled by
+	 * {@code scaleX} relative to the reference pattern — suggesting the raw
+	 * measurement would be off by the scale factor for any screenshot that is
+	 * not exactly 1:1.
+	 */
+	private int suggestedSize(int row, int col) {
+		double scale = (scaleX > 0) ? scaleX : 1.0;
+		return (int) Math.round(measuredDiameters[row][col] / scale);
 	}
 
 	private void printSuggestedSizes() {
@@ -498,7 +514,7 @@ public class ScreenshotAnalyzer {
 		for (int col = 0; col < NUM_SIZES; col++) {
 			if (col > 0) System.out.print(", ");
 			if (detected[row][col] && measuredDiameters[row][col] > 0) {
-				System.out.print(measuredDiameters[row][col]);
+				System.out.print(suggestedSize(row, col));
 			} else {
 				System.out.print(BorstUtils.SIZES[col] + "?");
 			}
@@ -548,7 +564,7 @@ public class ScreenshotAnalyzer {
 		for (int col = 0; col < NUM_SIZES; col++) {
 			if (col > 0) sb.append(", ");
 			if (detected[sizeRow][col] && measuredDiameters[sizeRow][col] > 0) {
-				sb.append(measuredDiameters[sizeRow][col]);
+				sb.append(suggestedSize(sizeRow, col));
 			} else {
 				sb.append(BorstUtils.SIZES[col]);
 			}

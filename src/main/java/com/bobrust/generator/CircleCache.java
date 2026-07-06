@@ -1,11 +1,10 @@
 package com.bobrust.generator;
 
-import com.bobrust.robot.BobRustPainter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class CircleCache {
-	private static final Logger LOGGER = LogManager.getLogger(BobRustPainter.class);
+	private static final Logger LOGGER = LogManager.getLogger(CircleCache.class);
 
 	private static final Scanline[] CIRCLE_0;
 	private static final Scanline[] CIRCLE_1;

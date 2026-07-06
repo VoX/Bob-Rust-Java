@@ -33,7 +33,7 @@ class SimulatedAnnealingBenchmark {
 		// Temporarily override the SA flag by calling the appropriate method directly
 		for (int i = 0; i < maxShapes; i++) {
 			Worker worker = getWorker(model);
-			worker.init(model.current, model.score);
+			worker.init(model.current, model.getTotalError());
 			List<State> randomStates = createRandomStates(worker, 200);
 			State state;
 			if (useSimulatedAnnealing) {
@@ -123,8 +123,8 @@ class SimulatedAnnealingBenchmark {
 		Worker worker = new Worker(target, ALPHA);
 		BorstImage current = new BorstImage(64, 64);
 		Arrays.fill(current.pixels, BACKGROUND);
-		float initialScore = BorstCore.differenceFull(target, current);
-		worker.init(current, initialScore);
+		long initialTotal = BorstCore.differenceFullTotal(target, current);
+		worker.init(current, initialTotal);
 		State state = new State(worker);
 		state.getEnergy();
 

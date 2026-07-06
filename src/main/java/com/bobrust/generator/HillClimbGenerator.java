@@ -2,12 +2,16 @@ package com.bobrust.generator;
 
 import com.bobrust.util.data.AppConstants;
 
-import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.IntStream;
+import java.util.Random;
 
 class HillClimbGenerator {
+	/**
+	 * How many SA iterations to run per unit of hill-climb age.
+	 * 3x hill climb iterations balances exploration vs speed.
+	 */
+	private static final int SA_ITERATIONS_PER_AGE = 3;
+
 	private static State getBestRandomState(List<State> random_states, ErrorMap errorMap) {
 		final int len = random_states.size();
 		for (int i = 0; i < len; i++) {
@@ -16,20 +20,7 @@ class HillClimbGenerator {
 			state.shape.randomize(errorMap);
 		}
 
-		if (AppConstants.USE_BATCH_PARALLEL) {
-			// Spatial batching: sort by Y coordinate for cache locality,
-			// then process in batches so nearby circles share L2 cache lines
-			random_states.sort(Comparator.comparingInt(s -> s.shape.y));
-			final int batchSize = 50;
-			for (int batch = 0; batch < len; batch += batchSize) {
-				final int start = batch;
-				final int end = Math.min(batch + batchSize, len);
-				// Process each batch in parallel but batches share Y-locality
-				IntStream.range(start, end).parallel().forEach(i -> random_states.get(i).getEnergy());
-			}
-		} else {
-			random_states.parallelStream().forEach(State::getEnergy);
-		}
+		random_states.parallelStream().forEach(State::getEnergy);
 
 		float bestEnergy = 0;
 		State bestState = null;
@@ -89,8 +80,12 @@ class HillClimbGenerator {
 
 		// Estimate initial temperature from sample mutations
 		float temperature = estimateTemperature(state);
-		int totalIterations = maxAge * 3; // 3x hill climb iterations balances exploration vs speed
+		int totalIterations = maxAge * SA_ITERATIONS_PER_AGE;
 		float coolingRate = computeCoolingRate(temperature, maxAge);
+
+		// Seeded worker RNG keeps the acceptance draws reproducible; this loop
+		// runs on the generator thread only.
+		Random random = state.getWorker().getRandom();
 
 		State undo = state.getCopy();
 
@@ -109,7 +104,7 @@ class HillClimbGenerator {
 			} else if (temperature > 0.001f) {
 				// Worse move — accept with probability exp(-delta/T)
 				double acceptProb = Math.exp(-delta / temperature);
-				if (ThreadLocalRandom.current().nextDouble() < acceptProb) {
+				if (random.nextDouble() < acceptProb) {
 					currentEnergy = newEnergy;
 				} else {
 					state.fromValues(undo);
@@ -164,10 +159,11 @@ class HillClimbGenerator {
 
 	/**
 	 * Compute the geometric cooling rate so that temperature decays from
-	 * {@code initialTemp} to near-zero (0.001) over {@code maxAge * 10} iterations.
+	 * {@code initialTemp} to near-zero (0.001) over
+	 * {@code maxAge * SA_ITERATIONS_PER_AGE} iterations.
 	 */
 	static float computeCoolingRate(float initialTemp, int maxAge) {
-		int totalIterations = maxAge * 3; // 3x hill climb iterations balances exploration vs speed
+		int totalIterations = maxAge * SA_ITERATIONS_PER_AGE;
 		float finalTemp = 0.001f;
 		if (initialTemp <= finalTemp) {
 			return 0.99f; // fallback if temperature is already tiny

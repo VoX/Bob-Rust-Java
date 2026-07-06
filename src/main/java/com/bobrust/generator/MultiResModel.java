@@ -95,6 +95,14 @@ public class MultiResModel {
 
     /**
      * Scale a circle from one resolution level to another.
+     *
+     * TODO: Up-scaling is broken for large coarse circles. Propagating from
+     * quarter to full resolution multiplies the radius by ~4, but the engine can
+     * only rasterize the cached SIZES (max 100), so getClosestSize snaps r=200/400
+     * back to 100 and the propagated circle covers 1/4-1/16 of the intended area.
+     * Before this class is ever wired into BorstGenerator, coarse levels must be
+     * restricted to sizes whose upscale exists (r <= 100 / scale), or the circle
+     * cache must be extended with the up-scaled sizes.
      */
     private Circle scaleCircle(Circle shape, int fromLevel, int toLevel) {
         float scaleX = (float) dims[toLevel][0] / dims[fromLevel][0];

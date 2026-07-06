@@ -17,6 +17,10 @@ class State {
 		this.score = score;
 		this.shape = sh;
 	}
+
+	Worker getWorker() {
+		return worker;
+	}
 	
 	public float getEnergy() {
 		if (score < 0) {

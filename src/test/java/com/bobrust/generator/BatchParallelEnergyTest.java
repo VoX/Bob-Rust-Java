@@ -41,7 +41,7 @@ class BatchParallelEnergyTest {
             BorstImage current = new BorstImage(target.width, target.height);
             Arrays.fill(current.pixels, BACKGROUND);
 
-            float score = BorstCore.differenceFull(target, current);
+            long total = BorstCore.differenceFullTotal(target, current);
 
             // Test multiple circle positions and sizes
             int[][] testCases = {
@@ -54,9 +54,9 @@ class BatchParallelEnergyTest {
                 int cx = tc[0], cy = tc[1], sizeIdx = tc[2];
 
                 float classic = BorstCore.differencePartialThreadClassic(
-                    target, current, score, ALPHA, sizeIdx, cx, cy);
+                    target, current, total, ALPHA, sizeIdx, cx, cy);
                 float combined = BorstCore.differencePartialThreadCombined(
-                    target, current, score, ALPHA, sizeIdx, cx, cy);
+                    target, current, total, ALPHA, sizeIdx, cx, cy);
 
                 assertEquals(classic, combined, 1e-6f,
                     names[idx] + " at (" + cx + "," + cy + ") size=" + sizeIdx +
@@ -78,7 +78,7 @@ class BatchParallelEnergyTest {
         // Run a sequence of shapes and compare energies at each step
         BorstImage current = new BorstImage(target.width, target.height);
         Arrays.fill(current.pixels, BACKGROUND);
-        float score = BorstCore.differenceFull(target, current);
+        long total = BorstCore.differenceFullTotal(target, current);
 
         // Use fixed circle positions/sizes for reproducibility
         int[][] shapes = {
@@ -90,9 +90,9 @@ class BatchParallelEnergyTest {
             int cx = s[0], cy = s[1], sizeIdx = s[2];
 
             float classic = BorstCore.differencePartialThreadClassic(
-                target, current, score, ALPHA, sizeIdx, cx, cy);
+                target, current, total, ALPHA, sizeIdx, cx, cy);
             float combined = BorstCore.differencePartialThreadCombined(
-                target, current, score, ALPHA, sizeIdx, cx, cy);
+                target, current, total, ALPHA, sizeIdx, cx, cy);
 
             assertEquals(classic, combined, 1e-6f,
                 "Mismatch at (" + cx + "," + cy + ") size=" + sizeIdx);
@@ -101,7 +101,7 @@ class BatchParallelEnergyTest {
             BorstColor color = BorstCore.computeColor(target, current, ALPHA, sizeIdx, cx, cy);
             BorstImage before = current.createCopy();
             BorstCore.drawLines(current, color, ALPHA, sizeIdx, cx, cy);
-            score = BorstCore.differencePartial(target, before, current, score, sizeIdx, cx, cy);
+            total = BorstCore.differencePartialTotal(target, before, current, total, sizeIdx, cx, cy);
         }
 
         System.out.println("Multi-shape sequential test: all energies match");
@@ -116,14 +116,14 @@ class BatchParallelEnergyTest {
         BorstImage target = new BorstImage(argb);
         BorstImage current = new BorstImage(target.width, target.height);
         Arrays.fill(current.pixels, BACKGROUND);
-        float score = BorstCore.differenceFull(target, current);
+        long total = BorstCore.differenceFullTotal(target, current);
 
         int iterations = 5000;
 
         // Warm up
         for (int i = 0; i < 500; i++) {
-            BorstCore.differencePartialThreadClassic(target, current, score, ALPHA, 3, 64, 64);
-            BorstCore.differencePartialThreadCombined(target, current, score, ALPHA, 3, 64, 64);
+            BorstCore.differencePartialThreadClassic(target, current, total, ALPHA, 3, 64, 64);
+            BorstCore.differencePartialThreadCombined(target, current, total, ALPHA, 3, 64, 64);
         }
 
         // Benchmark classic
@@ -132,7 +132,7 @@ class BatchParallelEnergyTest {
             int x = (i * 7 + 13) % target.width;
             int y = (i * 11 + 17) % target.height;
             int sz = i % 6;
-            BorstCore.differencePartialThreadClassic(target, current, score, ALPHA, sz, x, y);
+            BorstCore.differencePartialThreadClassic(target, current, total, ALPHA, sz, x, y);
         }
         long classicNs = System.nanoTime() - startClassic;
 
@@ -142,7 +142,7 @@ class BatchParallelEnergyTest {
             int x = (i * 7 + 13) % target.width;
             int y = (i * 11 + 17) % target.height;
             int sz = i % 6;
-            BorstCore.differencePartialThreadCombined(target, current, score, ALPHA, sz, x, y);
+            BorstCore.differencePartialThreadCombined(target, current, total, ALPHA, sz, x, y);
         }
         long combinedNs = System.nanoTime() - startCombined;
 
@@ -172,13 +172,14 @@ class BatchParallelEnergyTest {
         BorstImage target = new BorstImage(argb);
         BorstImage current = new BorstImage(target.width, target.height);
         Arrays.fill(current.pixels, BACKGROUND);
-        float score = BorstCore.differenceFull(target, current);
+        long total = BorstCore.differenceFullTotal(target, current);
+        float score = BorstCore.scoreFromTotal(total, target.width, target.height);
 
         // Circle completely outside the image
         float classic = BorstCore.differencePartialThreadClassic(
-            target, current, score, ALPHA, 0, -100, -100);
+            target, current, total, ALPHA, 0, -100, -100);
         float combined = BorstCore.differencePartialThreadCombined(
-            target, current, score, ALPHA, 0, -100, -100);
+            target, current, total, ALPHA, 0, -100, -100);
 
         assertEquals(classic, combined, 1e-6f, "Out-of-bounds circle should match");
         assertEquals(score, combined, 1e-6f, "Out-of-bounds circle should return original score");
@@ -195,7 +196,7 @@ class BatchParallelEnergyTest {
         BorstImage target = new BorstImage(argb);
         BorstImage current = new BorstImage(target.width, target.height);
         Arrays.fill(current.pixels, BACKGROUND);
-        float score = BorstCore.differenceFull(target, current);
+        long total = BorstCore.differenceFullTotal(target, current);
 
         // Grid of test points covering the entire image
         int mismatches = 0;
@@ -203,9 +204,9 @@ class BatchParallelEnergyTest {
             for (int x = 5; x < target.width; x += 10) {
                 for (int sz = 0; sz < 6; sz++) {
                     float classic = BorstCore.differencePartialThreadClassic(
-                        target, current, score, ALPHA, sz, x, y);
+                        target, current, total, ALPHA, sz, x, y);
                     float combined = BorstCore.differencePartialThreadCombined(
-                        target, current, score, ALPHA, sz, x, y);
+                        target, current, total, ALPHA, sz, x, y);
                     if (Math.abs(classic - combined) > 1e-6f) {
                         mismatches++;
                     }

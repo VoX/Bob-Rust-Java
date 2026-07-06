@@ -22,12 +22,13 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * Verifies that gradient-based size biasing produces equal or better results
  * than uniform size selection. Generates visual comparison images saved to
- * test-results/proposal3/.
+ * build/test-output/proposal3/.
  */
 class AdaptiveSizeSelectionTest {
 	private static final int ALPHA = 128;
 	private static final int BACKGROUND = 0xFFFFFFFF;
-	private static final File OUTPUT_DIR = new File("test-results/proposal3");
+	// Write under build/ so test runs never dirty the git working tree
+	private static final File OUTPUT_DIR = new File("build/test-output/proposal3");
 
 	@BeforeAll
 	static void setup() {
@@ -253,7 +254,7 @@ class AdaptiveSizeSelectionTest {
 		}
 
 		for (int i = 0; i < maxShapes; i++) {
-			worker.init(model.current, model.score);
+			worker.init(model.current, model.getTotalError());
 			List<State> randomStates = createRandomStates(worker, 200);
 			State best = getBestRandomState(randomStates, errorMap);
 			State state = HillClimbGenerator.getHillClimbClassic(best, 100);

@@ -67,6 +67,12 @@ class BorstCore {
 		return BorstUtils.getClosestColor((alpha << 24) | (r << 16) | (g << 8) | (b));
 	}
 	
+	// NOTE: This forward blend divides by 256 (>>> 8) while computeColor's
+	// inverse assumes the standard /255 blend, so the model's own forward and
+	// inverse disagree by ~0.4% and every stamp is simulated one level dark at
+	// full opacity. Which divisor matches the game's actual compositing is
+	// unknown without measured calibration data, so this is deliberately left
+	// unchanged — see the calibration tool. Fix both sides together or not at all.
 	static void drawLines(BorstImage im, BorstColor c, int alpha, int size, int x_offset, int y_offset) {
 		int cr = c.r * alpha;
 		int cg = c.g * alpha;
@@ -105,12 +111,29 @@ class BorstCore {
 		}
 	}
 	
+	/**
+	 * Convert an exact squared-error total to the normalized display score.
+	 * The energy carry is kept as an exact {@code long} everywhere internally
+	 * (see {@link #differenceFullTotal} / {@link #differencePartialTotal});
+	 * the float score is derived only at this boundary. Reconstructing the
+	 * total from the rounded float — as the code previously did each step —
+	 * injected up to ~total * 2^-23 error per shape and could go negative near
+	 * convergence, turning the score into NaN and silently stalling the search.
+	 */
+	static float scoreFromTotal(long total, int w, int h) {
+		return (float)(Math.sqrt(total / (w * h * 4.0)) / 255.0);
+	}
+
 	static float differenceFull(BorstImage a, BorstImage b) {
+		return scoreFromTotal(differenceFullTotal(a, b), a.width, a.height);
+	}
+
+	static long differenceFullTotal(BorstImage a, BorstImage b) {
 		final int w = a.width;
 		final int h = a.height;
-		
+
 		long total = 0;
-		
+
 		final int length = w * h;
 		for(int i = 0; i < length; i++) {
 			int aa = a.pixels[i];
@@ -134,15 +157,19 @@ class BorstCore {
 			total += (dr*dr + dg*dg + db*db + da*da);
 		}
 
-		return (float)(Math.sqrt(total / (w * h * 4.0)) / 255.0);
+		return total;
 	}
-	
-	static float differencePartial(BorstImage target, BorstImage before, BorstImage after, float score, int size, int x_offset, int y_offset) {
+
+	/**
+	 * Exact incremental update of the squared-error total: subtracts the
+	 * before-error and adds the after-error over the circle's clipped pixels.
+	 * Takes and returns the exact {@code long} total, so repeated application
+	 * stays provably identical to {@link #differenceFullTotal}.
+	 */
+	static long differencePartialTotal(BorstImage target, BorstImage before, BorstImage after, long total, int size, int x_offset, int y_offset) {
 		int w = target.width;
 		int h = target.height;
-		double denom = (w * h * 4.0);
-		long total = (long)(Math.pow(score * 255, 2) * denom);
-		
+
 		final Scanline[] lines = CircleCache.CIRCLE_CACHE[size];
 		final int len = lines.length;
 		for (int i = 0; i < len; i++) {
@@ -190,29 +217,28 @@ class BorstCore {
 				total += (long)(dr2*dr2 + dg2*dg2 + db2*db2 + da2*da2);
 			}
 		}
-		
-		return (float)(Math.sqrt(total / denom) / 255.0);
+
+		return total;
 	}
-	
-	static float differencePartialThread(BorstImage target, BorstImage before, float score, int alpha, int size, int x_offset, int y_offset) {
+
+	static float differencePartialThread(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset) {
 		if (AppConstants.USE_BATCH_PARALLEL) {
-			return differencePartialThreadCombined(target, before, score, alpha, size, x_offset, y_offset);
+			return differencePartialThreadCombined(target, before, baseTotal, alpha, size, x_offset, y_offset);
 		}
-		return differencePartialThreadClassic(target, before, score, alpha, size, x_offset, y_offset);
+		return differencePartialThreadClassic(target, before, baseTotal, alpha, size, x_offset, y_offset);
 	}
 
 	/**
 	 * Classic two-pass implementation: computeColor then energy calculation.
 	 * Used as fallback when USE_BATCH_PARALLEL is false.
 	 */
-	static float differencePartialThreadClassic(BorstImage target, BorstImage before, float score, int alpha, int size, int x_offset, int y_offset) {
+	static float differencePartialThreadClassic(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset) {
 		BorstColor color = BorstCore.computeColor(target, before, alpha, size, x_offset, y_offset);
 
 		final int h = target.height;
 		final int w = target.width;
 
-		final double denom = (w * h * 4.0);
-		long total = (long)(Math.pow(score * 255, 2) * denom);
+		long total = baseTotal;
 
 		final int cr = color.r * alpha;
 		final int cg = color.g * alpha;
@@ -267,19 +293,19 @@ class BorstCore {
 			}
 		}
 
-		return (float)(Math.sqrt(total / denom) / 255.0);
+		return scoreFromTotal(total, w, h);
 	}
 
 	/**
-	 * Combined single-pass implementation that merges computeColor and energy
+	 * Combined implementation that merges computeColor and the energy
 	 * calculation. Pass 1 accumulates color sums AND before-error in one scan
-	 * over the circle pixels. Pass 2 only needs to compute after-error, saving
-	 * ~33% of memory reads compared to the classic two-pass approach.
-	 *
-	 * Also uses precomputed alpha blend tables to replace per-pixel multiplies
-	 * with table lookups.
+	 * over the circle pixels; pass 2 computes the after-error with the color
+	 * terms hoisted out of the loop. Verified numerically identical to the
+	 * classic path by BatchParallelEnergyTest. (Both variants make the same
+	 * four array traversals per pixel, so expect comparable speed, not the
+	 * large win the original proposal claimed.)
 	 */
-	static float differencePartialThreadCombined(BorstImage target, BorstImage before, float score, int alpha, int size, int x_offset, int y_offset) {
+	static float differencePartialThreadCombined(BorstImage target, BorstImage before, long baseTotal, int alpha, int size, int x_offset, int y_offset) {
 		final int h = target.height;
 		final int w = target.width;
 		final int pa = 255 - alpha;
@@ -341,7 +367,7 @@ class BorstCore {
 
 		// Guard against division by zero when circle is entirely out of bounds
 		if (count == 0) {
-			return score;
+			return scoreFromTotal(baseTotal, w, h);
 		}
 
 		// Compute optimal color from sums (same math as computeColor)
@@ -359,7 +385,7 @@ class BorstCore {
 
 		BorstColor color = BorstUtils.getClosestColor((alpha << 24) | (r << 16) | (g << 8) | (b));
 
-		// Build precomputed alpha blend tables for this color
+		// Hoist the color * alpha terms out of the pass 2 loop
 		final int cr = color.r * alpha;
 		final int cg = color.g * alpha;
 		final int cb = color.b * alpha;
@@ -407,10 +433,8 @@ class BorstCore {
 		}
 
 		// Combine: total = baseTotal - beforeError + afterError
-		final double denom = (w * h * 4.0);
-		long baseTotal = (long)(Math.pow(score * 255, 2) * denom);
 		long total = baseTotal - beforeError + afterError;
 
-		return (float)(Math.sqrt(total / denom) / 255.0);
+		return scoreFromTotal(total, w, h);
 	}
 }

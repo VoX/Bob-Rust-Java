@@ -17,13 +17,14 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * Verifies that multi-resolution generation produces reasonable quality,
  * benchmarks timing vs single-resolution, and generates before/after
- * comparison images in test-results/proposal6/.
+ * comparison images in build/test-output/proposal6/.
  */
 class ProgressiveResolutionTest {
     private static final int ALPHA = 128;
     private static final int BACKGROUND = 0xFFFFFFFF;
     private static final int MAX_SHAPES = 100;
-    private static final File OUTPUT_DIR = new File("test-results/proposal6");
+    // Write under build/ so test runs never dirty the git working tree
+    private static final File OUTPUT_DIR = new File("build/test-output/proposal6");
 
     @BeforeAll
     static void setup() {

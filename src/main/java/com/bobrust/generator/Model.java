@@ -21,6 +21,13 @@ public class Model {
 	public final int alpha;
 	public final int width;
 	public final int height;
+	/**
+	 * Exact squared-error total, carried as a long so the incremental updates
+	 * stay identical to a full recompute (no float round-trip drift, no
+	 * negative-total NaN near convergence). {@link #score} is derived from it
+	 * for display only.
+	 */
+	private long totalError;
 	protected float score;
 
 	private ErrorMap errorMap;
@@ -39,7 +46,8 @@ public class Model {
 		Arrays.fill(this.current.pixels, backgroundRGB);
 		this.beforeImage = new BorstImage(w, h);
 
-		this.score = BorstCore.differenceFull(target, current);
+		this.totalError = BorstCore.differenceFullTotal(target, current);
+		this.score = BorstCore.scoreFromTotal(totalError, w, h);
 		this.context = new BorstImage(w, h);
 		this.worker = new Worker(target, alpha);
 		this.alpha = alpha;
@@ -66,7 +74,8 @@ public class Model {
 		BorstColor color = BorstCore.computeColor(target, current, alpha, cache_index, shape.x, shape.y);
 
 		BorstCore.drawLines(current, color, alpha, cache_index, shape.x, shape.y);
-		this.score = BorstCore.differencePartial(target, beforeImage, current, score, cache_index, shape.x, shape.y);
+		this.totalError = BorstCore.differencePartialTotal(target, beforeImage, current, totalError, cache_index, shape.x, shape.y);
+		this.score = BorstCore.scoreFromTotal(totalError, width, height);
 		shapes.add(shape);
 		colors.add(color);
 
@@ -91,6 +100,11 @@ public class Model {
 		return score;
 	}
 
+	/** Returns the exact squared-error total that {@link #getScore()} is derived from. */
+	long getTotalError() {
+		return totalError;
+	}
+
 	/** Package-private accessor for the worker (used by MultiResModel). */
 	Worker getWorker() {
 		return worker;
@@ -103,7 +117,7 @@ public class Model {
 	private List<State> randomStates;
 	
 	public int processStep() {
-		worker.init(current, score);
+		worker.init(current, totalError);
 		if (randomStates == null) {
 			randomStates = new ArrayList<>();
 			for (int i = 0; i < max_random_states; i++) {

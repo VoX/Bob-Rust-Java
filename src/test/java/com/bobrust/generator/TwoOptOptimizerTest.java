@@ -186,7 +186,9 @@ class TwoOptOptimizerTest {
         Random rnd = new Random(777);
         BlobList input = generateRandomBlobs(rnd, 100);
 
-        // BorstSorter.sort should now include 2-opt when USE_TSP_OPTIMIZATION is true
+        // USE_TSP_OPTIMIZATION is disabled by default (2-opt breaks the sorter's
+        // overlap-precedence invariant), so this exercises the plain greedy sort;
+        // the assertions below hold either way.
         BlobList sorted = BorstSorter.sort(input, CANVAS_SIZE);
 
         // Basic sanity: same number of blobs

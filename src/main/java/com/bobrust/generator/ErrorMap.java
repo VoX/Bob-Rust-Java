@@ -33,13 +33,18 @@ public class ErrorMap {
 	public ErrorMap(int imageWidth, int imageHeight, int gridWidth, int gridHeight) {
 		this.imageWidth = imageWidth;
 		this.imageHeight = imageHeight;
-		this.gridWidth = gridWidth;
-		this.gridHeight = gridHeight;
 		this.cellWidth = Math.max(1, (imageWidth + gridWidth - 1) / gridWidth);
 		this.cellHeight = Math.max(1, (imageHeight + gridHeight - 1) / gridHeight);
-		this.cellErrors = new float[gridWidth * gridHeight];
-		this.alias = new int[gridWidth * gridHeight];
-		this.prob = new float[gridWidth * gridHeight];
+		// Shrink the grid to only the cells that cover in-image pixels. With the
+		// requested grid dimension, ceil(w / gridWidth) sized cells can leave the
+		// last cells entirely outside the image (e.g. w=100, 32 cells of width 4
+		// cover 128px), and sampling such a cell would ask Random.nextInt for a
+		// non-positive bound.
+		this.gridWidth = Math.max(1, (imageWidth + cellWidth - 1) / cellWidth);
+		this.gridHeight = Math.max(1, (imageHeight + cellHeight - 1) / cellHeight);
+		this.cellErrors = new float[this.gridWidth * this.gridHeight];
+		this.alias = new int[this.gridWidth * this.gridHeight];
+		this.prob = new float[this.gridWidth * this.gridHeight];
 		this.tableValid = false;
 	}
 
@@ -225,9 +230,12 @@ public class ErrorMap {
 		int pxStart = gx * cellWidth;
 		int pyStart = gy * cellHeight;
 
-		int px = pxStart + rnd.nextInt(Math.min(cellWidth, imageWidth - pxStart));
-		int py = pyStart + rnd.nextInt(Math.min(cellHeight, imageHeight - pyStart));
+		// Every cell covers at least one in-image pixel (the grid is clamped to
+		// the image in the constructor), but guard the bound anyway so a
+		// degenerate table can never throw from Random.nextInt.
+		int px = pxStart + rnd.nextInt(Math.max(1, Math.min(cellWidth, imageWidth - pxStart)));
+		int py = pyStart + rnd.nextInt(Math.max(1, Math.min(cellHeight, imageHeight - pyStart)));
 
-		return new int[]{px, py};
+		return new int[]{Math.min(px, imageWidth - 1), Math.min(py, imageHeight - 1)};
 	}
 }
