@@ -1,218 +1,306 @@
-# Bob-Rust-Java — Improvement Plan (validated)
+# Bob-Rust-Java — Improvement Plan (FINAL — post-bugfix, perf-integrated)
 
-Compiled from a multi-agent validation of `PROPOSALS-V2.md` (proposals 7–18) and
-`PROPOSALS-SPEED.md`, cross-checked against the two review docs
-(`REVIEW-FORK-CHANGES.md`, `REVIEW-CORE-MODEL.md`). Every proposal below was
-re-validated against the actual code; premises, effort, risk, and priority reflect
-that pass, **not** the proposals' self-assessment. Where the validators overruled a
-proposal's own claim, it's called out as a **correction**.
+Compiled from the multi-agent validation of `PROPOSALS-V2.md` (P7–P18) and
+`PROPOSALS-SPEED.md`, cross-checked against `REVIEW-FORK-CHANGES.md` /
+`REVIEW-CORE-MODEL.md`, **updated after the bug-fix pass on this branch**
+(`fix/review-findings`, see `FIXES-APPLIED.md` — build green, 45 tests) and
+**integrating the measured generation profile** in `PERFORMANCE-PLAN.md`.
+This is the execution document: work the roadmap in §3 in order.
 
-Legend: effort **S/M/L**; priority **HIGH / MED / LOW**; "long pole" = high value but
-externally/temporally blocked.
-
----
-
-## 0. The through-line the validators agree on
-
-Three independent things showed up in every pass and shape the whole plan:
-
-1. **Nothing is measurable until determinism is restored.** Generation uses
-   `ThreadLocalRandom` (`Worker.java:50-52`), and every end-to-end test is a loose
-   tolerance guard (1.05×–1.30×). No on-fork A/B number to date is trustworthy. So the
-   **deterministic-seed + benchmark harness is the foundation, built first.**
-2. **The broken 2-opt is a prerequisite, not a cleanup.** `BorstSorter.sort`
-   unconditionally runs the 2-opt (`USE_TSP_OPTIMIZATION=true`), which (a) corrupts
-   paint z-order (no precedence check — the likely cause of the "poor output" reported)
-   and (b) is O(n²)×100, freezing the "Calculate Exact Time" button on the EDT. The
-   estimator, pruning, and budget-selection all call `sort()`, so **flipping the flag to
-   `false` must be step 1**, not a late step. (This is already in the bug-fix track.)
-3. **Five quality proposals rewrite the same four `BorstCore` hot loops.** P7, P8b, P9's
-   soft-edge rim, P10, and P11 all restructure `computeColor` / `drawLines` /
-   `differencePartialThread{Classic,Combined}`. Doing them independently = five rounds of
-   surgery on the same integer inner loops, each a chance to silently desync
-   `computeColor` from the energy pass. **Treat them as one coordinated hot-loop rewrite**,
-   guarded by the `BatchParallelEnergyTest` equivalence check.
+Legend: effort **S/M/L**; status **✅ DONE / NEXT / LATER**; "long pole" = high
+value but externally blocked.
 
 ---
 
-## 1. Foundation (do first — mostly overlaps the bug-fix track)
+## Status as of this update (2026-07-06)
 
-- **P15 — Deterministic seed + benchmark harness. HIGH, effort M, build first.**
-  Makes every other claim measurable; also folds the six compile-time `USE_*` flags into a
-  runtime `GeneratorConfig` (which is what lets you runtime-disable the broken 2-opt and
-  A/B any change). **Correction (validator):** the proposal overstates the *source* of
-  nondeterminism — all RNG draws are already serial on the single generator thread
-  (`randomize()` runs in a serial loop; the parallel `getEnergy` is pure), so a single
-  seeded `RandomGenerator` on the `Worker` restores determinism. The elaborate
-  per-state `mix(runSeed,stepIndex,stateIndex)` scheme is insurance for a future parallel
-  mutation, not a requirement — so this is *cheaper and lower-risk* than written.
-- **2-opt demotion (`USE_TSP_OPTIMIZATION=false`). HIGH, effort S.** Correctness + unblocks
-  the speed features. Prerequisite for the estimator/pruning/selection. *(bug-fix track)*
-- **Exact long-integer energy accumulator.** The `differencePartial` float score
-  round-trips and can drift / NaN-poison near convergence (`REVIEW-CORE-MODEL §2`). Several
-  proposals (P12 refit, P18 live metric) inherit this — do the exact accumulator early.
-  *(bug-fix track)*
-- **Calibration scale fix (Bug 4).** `ScreenshotAnalyzer` emits raw screenshot-pixel
-  diameters as `SIZES` ignoring `scaleX` — must land before P9 persists a profile, or the
-  profile bakes the bug in. *(bug-fix track)*
+**Already DONE by the bug-fix pass** (verified in code on this branch):
 
----
+- ✅ **2-opt demoted** — `USE_TSP_OPTIMIZATION = false` (z-order corruption + EDT
+  freeze gone). Unblocks the estimator, pruning, budget selection, and journal.
+- ✅ **Determinism restored** — `Worker` holds one seeded `new Random(0)`
+  (`Worker.java:17`); the SA acceptance draws use the same worker RNG. Two runs
+  are byte-identical (`ReviewFixesRegressionTest.generationIsDeterministic`).
+  **PARTIAL:** the seed is a compile-time constant, not a Setting; and the
+  *benchmark harness + SSIM/ΔE00 metrics half of P15 is NOT done* — only the
+  determinism half is.
+- ✅ **Exact long-integer energy accumulation** — the running total is an exact
+  `long` end-to-end; NaN/drift near convergence is now impossible
+  (`incrementalTotalMatchesFullRecomputeExactly`). P12's refit and P18's live
+  metric no longer inherit that risk.
+- ✅ **P4 spatial batching reverted** — plain
+  `random_states.parallelStream().forEach(State::getEnergy)`
+  (`HillClimbGenerator.java:23`). This *is* PERFORMANCE-PLAN item #2 (measured
+  1.32× on the eval phase) — already banked, don't re-do it.
+- ✅ **ErrorMap.samplePosition crash fixed** — grid recomputed as
+  `ceil(image/cellSize)`, bounds guarded; blank/non-divisible targets survive
+  10k samples. Prerequisite for leaning harder on error-guided placement (G3
+  below) and for B3's ÷2 dimensions.
+- ✅ **Calibration screenshot-scale fix (Bug 4)** — suggested `SIZES` are now
+  `round(measuredDiameters / scaleX)`; a persisted P9 profile can no longer
+  bake in the scale bug.
+- ✅ **`USE_PROGRESSIVE_RESOLUTION = false`** — the flag was lying (nothing
+  reads it); `MultiResModel` up-scale snap documented as a TODO on dead code.
+- ✅ **Hygiene** — test PNGs untracked + redirected to `build/test-output/`,
+  CircleCache logger fixed, `SA_ITERATIONS_PER_AGE` extracted, 4-test
+  regression suite pinning the above.
 
-## 2. Highest-value quality levers
+**Still deferred, deliberately** (from FIXES-APPLIED.md, unchanged here):
+blend-divisor mismatch (`>>>8` vs `/255` — needs measured calibration data,
+§3 Phase 4), `clickPointScaledDrawColor` false-retry (part of the open-loop
+problem, §3 Phase 5), MultiResModel snap (dead code — recommend deletion, §3
+Phase 6), `PAINT_THRESHOLD`, GradientMap max-normalization caveat.
 
-- **P7 — Per-shape alpha optimization. HIGH, effort M.** The biggest untapped quality
-  lever and the most solidly code-grounded premise: the whole downstream pipeline already
-  carries per-shape alpha (`Blob.alphaIndex`, the sorter, `TwoOptOptimizer`, and the
-  painter's alpha-slider click at `BobRustPainter.java:132-136`); only the *generator* is
-  locked to one global alpha (4 lock points: `Circle` has no alpha field, `Worker.getEnergy`
-  uses `worker.alpha`, `Model.alpha`, `BorstData.update`). Low-alpha "glazing" blends colors
-  beyond the fixed 64-palette — how human painters do skin/gradients. **Watch:** extend the
-  sorter cache key to `(size,color,alpha,shape)` (shared with P11); thread `alphaIndex`
-  through `State.getCopy`/`Circle.fromValues` (currently drops it → undo/determinism bug);
-  floor `minAlphaIndex` so convergence doesn't balloon shape counts. **Correction:** its
-  *painted-result* payoff is partly hostage to P9 — low alpha is exactly where the
-  uncalibrated blend (`>>>8` darkening, sRGB-vs-linear) is least trustworthy, so the *sim*
-  may improve 10–25% while the *sign* improves less until P9 lands.
-- **P8a + P8b — Perceptual color (OKLab snap + channel-weighted energy). MED-HIGH, effort S.**
-  Cheapest wins in the set, no external deps. 8a swaps the palette-snap metric in the
-  static LUT initializer (near-free); 8b weights the energy channels (Rec.601-ish).
-  **Required correction:** the snap distance in `getClosestColor` **must use the same
-  weights as the energy**, or ranking and snapping disagree and you reintroduce exactly the
-  discrete-suboptimality the design's "optimal-color-then-snap" avoids (`REVIEW-CORE-MODEL
-  §2` calls that the strongest piece of the design). 8c (dithering) stays behind a flag /
-  LOW — speculative at 3–100px circle scale.
-- **P9 — Measured paint model → persisted `CalibrationProfile`. HIGH value, long pole,
-  effort M–H.** The only proposal that fixes the *objective itself* rather than the search:
-  today `ScreenshotAnalyzer` only prints suggestions the user hand-edits; there's no profile,
-  no blend-space detection. It's the correctness multiplier for P7 (real alpha values) and
-  P11 (real square mask). **Blocked by:** needs an in-game Rust session; inherits the Bug-4
-  scale fix; the calibration pattern (`CalibrationPatternGenerator`, 6×6) and the only robot
-  path that paints exact per-cell settings (`generateDebugDrawList`) aren't wired together,
-  so the "paint this pattern in-game" round-trip doesn't close yet. Making `ALPHAS`/`SIZES`
-  non-final also forces rebuilding the `NumberLookup` tables, `CircleCache` masks, and color
-  LUT (all class-load-time today). **Plan:** land the analyzer/profile *plumbing* early
-  (parallel to P7/P8 behind flags); expect the *engine cutover* last, when in-game data
-  exists.
-- **Coordinated hot-loop rewrite (P7 + P8b + P9-rim + P10 + P11).** Sequence these as one
-  refactor of the four `BorstCore` functions, not five, and keep the
-  `BatchParallelEnergyTest` equivalence guard green throughout.
+**NOT done — the remaining work** (all of §3 below): the benchmark harness +
+perceptual metrics; every generation-speed item from PERFORMANCE-PLAN.md that
+isn't the batching revert (`USE_SIMULATED_ANNEALING` is still `true`,
+`max_random_states` still 1000, `age` still 100, the proxy kernel doesn't
+exist, the dead `Model.context` drawLines write is still at `Model.java:82`);
+and all quality / paint-speed / robustness / packaging features.
 
 ---
 
-## 3. Highest-value robustness
+## 1. The through-line (updated for the new reality)
 
-- **P13 — Closed-loop painting + journal/resume. HIGH, effort L.** Closes the #2
-  foundational risk: the painter is open-loop, tool state is memory-only, and one missed
-  palette click silently misprints the rest of the run. Verified premises: the false-retry
-  bug (`clickPointScaledDrawColor` presses on every attempt, `BobRustPainter.java:196-218`);
-  the literal `// TODO: previouslyUsed should start at drawnShapes` (`DrawDialog.java:216`);
-  completion-as-exception (`:173`). Ship order: the 13a false-retry hotfix + 13d journal/
-  exact-resume + 13b batch screenshot-diff verification first. **Depends on** the 2-opt fix
-  (the journal encodes *sorted* order) and, for 13a's delta-*magnitude* gate, on P9 (the
-  delta it checks is computed by the uncalibrated forward model — use the delta *sign* +
-  tolerance until calibrated).
-
----
-
-## 4. Highest-value speed (paint-time is the dominant real-world cost)
-
-The paint-cost model in `PROPOSALS-SPEED.md` was verified **line-by-line accurate** against
-`BobRustPainter` (per-canvas blob = `1000/cps + 2·t_cap`; `mouseMove` teleports so travel is
-free; tool-change count = `getScore−4`). Paint-time figures are trustworthy; **match-%
-figures are provisional** (un-benchmarked — fill in via the P15 harness).
-
-- **Blob-count budget selection + dead-blob pruning. HIGH, effort M.** *The single biggest
-  lever* — paint time is provably linear in blob count (`T ≈ N·60ms + const`), and N is the
-  only multiplicative knob on the dominant term (cutting 4000→1500 = 2.6× beats any pacing
-  change). Code-grounded: record marginal Δscore in `Model.addShape`, rasterize via the
-  already-compacted `CircleCache`, hook at `convertToList → prune → sort` in
-  `startDrawingAction`. **Required corrections:** (1) the per-blob "error bound" isn't
-  rigorous — it ignores the substrate effect (dropping a blob shifts later blobs' blended
-  colors), so **prune-then-re-render-and-verify the true score**, don't threshold-and-paint;
-  (2) budget selection breaks the pure-prefix `previouslyUsed` resume assumption — ship it
-  **with** the `previouslyUsed`-as-instruction-list refactor (same one P13d needs).
-- **Paint-time estimator + live readout in `DrawDialog`. HIGH, effort M.** Replaces both the
-  crude `OverlayTopPanel` fudge and the EDT-freezing "Calculate Exact Time" button with a
-  debounced background `SwingWorker` showing "≈ 1m 12s · ≈ 84% match". Math verified;
-  `updateTimeRemaining` already computes realized ms/shape — just persist `t_cap`. Depends on
-  the 2-opt demotion for a responsive `sort()`.
-- **Preset ladder (Blazing / Fast / Balanced / Max Quality). HIGH framework, provisional
-  numbers.** Every knob maps to a real target (shape-count slider, `SettingsMaxShapes`,
-  size-index floors, a masked 32-color LUT, cps, a new verification-cadence enum, a
-  `GenerationConfig` for states/age/SA). Keep the existing slider as the fine budget control;
-  add a "(Custom)" dirty state. Numbers are formula-driven placeholders until the harness runs.
-- **Verification throttling + cps presets. MED-HIGH, effort S.** ~2.5–3×/blob at the Blazing
-  end (skip the ~2·t_cap `getPixelColor` tax on most clicks). Risk is reliability, not
-  accuracy; mitigate with sparse verification. *(Drop the "fix the retry-timer" sub-item — the
-  validator confirmed `retryTime` is already re-anchored per iteration at
-  `BobRustPainter.java:200`.)*
-- **Generation effort scaling + early-stop (B1/B2). MED, effort M.** Cheap and safe;
-  generation usually isn't the wall-clock bottleneck (see the separate `PERFORMANCE-PLAN.md`
-  for the deep generation-speed profile).
-- **Half-res drafts (B3). CONDITIONAL MED — else DROP.** Only with the large-brush size cap
-  (cap half-res candidates to r ≤ 100/scale): the naive version inherits `MultiResModel`'s
-  upscale bug (r=100 at half-res → r=200 → snaps back to the 100px cap → ¼ area, so large flat
-  backgrounds can't be reproduced). Also needs the `ErrorMap.samplePosition` crash fix (Bug 3)
-  for ÷2 dimensions.
+1. **Determinism is done; measurability now hangs only on the harness.** The
+   expensive half of P15 (seeded RNG) landed in the fix pass and was cheaper
+   than proposed (single serial generator thread — no per-state seed mixing
+   needed). What's left is the *cheap* half: a repeatable benchmark runner +
+   SSIM/ΔE00 metrics + seed-as-Setting. Until it exists, every quality claim
+   below stays provisional — build it first (F1).
+2. **Generation speed has a measured 4–6× sitting on the table.** The profile
+   in PERFORMANCE-PLAN.md is measured, not estimated: candidate ranking is
+   61–71% of step time, large circles cost 360× small ones to *rank*, and the
+   subsampled proxy kernel + SA-off + candidate cut reached quality parity
+   (score spread 0.26%) at ~5.7× on production config. These are the cheapest
+   validated wins in the whole plan — they go immediately after F1.
+3. **The `BorstCore` hot loops get rewritten once, not five times.** P7, P8b,
+   P9's soft-edge rim, P10, and P11 all touch `computeColor` / `drawLines` /
+   `differencePartialThread{Classic,Combined}` — and now **also the proxy
+   ranking kernel (G2)**, which must stay metric-consistent with the exact
+   kernels (same channel weights, same alpha handling) or ranking silently
+   diverges from the objective. Treat them as one coordinated rewrite guarded
+   by `BatchParallelEnergyTest` + a proxy rank-fidelity test.
 
 ---
 
-## 5. Secondary / do-later (all validated KEEP, lower leverage or deeper deps)
+## 2. Reconciled dependencies (what the fixes unblocked)
 
-- **P14 — Auto palette detection + setup validation. MED, effort M.** Kills the "my colors
-  are wrong" support class rooted in a real silent-collision bug (`putIfAbsent` at
-  `BobRustPalette.java:60`) + 6-bit-LUT aliasing. Self-contained (manual fallback). Watch: the
-  `.with(GraphicsConfiguration)` machinery it wants to reuse is vestigial for HiDPI — validate,
-  don't trust it.
-- **P16 — Headless CLI + plan interchange format. MED, effort S-M.** Clean packaging over an
-  AWT-light core; unlocks CI benchmarking (P15), remote generation, and murals (P17).
-  **Correction:** the round-trip success criterion must compare to the `drawLines` composite,
-  not the antialiased `ShapeRender` preview (they're different rasterizers).
-- **P18 — Live quality metrics overlay. LOW-MED, effort S.** The live-RMSE half ships
-  *independently* (surface `Model.getScore()`); the SSIM/ΔE00 half reuses P15's metrics
-  package. Guard the drifting-score/NaN display.
-- **P12 — Redundant-shape pruning + final color re-fit. MED-LOW, effort M.** Reusable
-  bbox-replay infra + a strictly-non-negative refit gain. **Correction:** ε=0 ("quality-
-  neutral") pruning yield is structurally *small* at the translucent default alpha (index 2 =
-  100) — a shape is only fully occluded when later paint is opaque — so its headline yield
-  leans on either the dead multi-res or on ε>0 (which isn't quality-neutral). Grows valuable
-  *after* P7 adds opaque stamps. Reuse the `drawLines` replay, not `ShapeRender` buffers.
-- **P10 — Edge-weighted objective. LOW-MED, effort L-M.** Modest, uncertain, image-dependent;
-  internally consistent (per-pixel scalar weights keep the snap optimal). Only with P15's
-  benchmark; also re-weight the `ErrorMap` sampling or objective and placement disagree.
-- **P11 — Square brush in the generator. LOW, effort M (widest refactor).** Real but niche
-  (sign painters mostly do photos/faces); hard-gated on P9 confirming the in-game square mask;
-  amplifies preview divergence (`ShapeRender` fudges squares with `cd *= 1.25`). Do last among
-  quality items.
-- **P17 — Multi-sign murals. LOW, schedule last.** Best user-facing capability, fully
-  code-grounded, but the deepest node in the dependency graph (needs P13d + P16, which need the
-  2-opt/calibration fixes). Adds no engine improvement itself.
+- **Honest A/B for every change** — determinism ✅ means F1's harness is pure
+  tooling; no engine surgery left in the foundation.
+- **Estimator / pruning / budget selection / journal** — all called `sort()`;
+  2-opt ✅ makes `sort()` responsive and the sorted order trustworthy.
+- **Pruning + refit color paths** — exact energy ✅ removes the NaN poisoning
+  risk they inherited; a re-rendered "true score after pruning" is now exact.
+- **P9 profile persistence** — Bug 4 ✅ means a persisted profile is in
+  sign-pixel space; plumbing can proceed without baking in the scale bug.
+- **B3 half-res drafts** — ErrorMap ✅ removes the ÷2-dimension crash; still
+  conditional on the large-brush size cap (see Phase 6).
+- **SA-off no longer carries determinism weight** — PERFORMANCE-PLAN.md wrote
+  that dropping SA "removes nondeterministic acceptance draws"; the fix pass
+  already seeded those draws. G1 is now purely a speed/quality-parity change.
+- **Still-standing validator corrections** (unchanged): per-shape alpha's
+  *painted* payoff is partly hostage to P9 calibration; the perceptual snap
+  metric must equal the energy metric; blob pruning must re-render-and-verify
+  (substrate effect) and ship with the `previouslyUsed` refactor; blend
+  divisor and the open-loop painter stay deferred pending calibration /
+  closed-loop work.
 
 ---
 
-## 6. Recommended build order (dependency spine)
+## 3. Roadmap — remaining work, in build order
 
-1. **Foundation:** determinism + benchmark harness (P15, simplified per the correction) ·
-   `USE_TSP_OPTIMIZATION=false` · exact long-integer energy accumulator · Bug-4 calibration
-   scale fix. *(Most of these are already in the bug-fix branch `fix/review-findings`.)*
-2. **Cheap quality + the biggest speed lever, in parallel:** P8a+P8b (with the snap=energy
-   consistency fix) · P7 per-shape alpha — begun as the coordinated `BorstCore` hot-loop
-   rewrite. In parallel on the paint side: blob pruning + budget selection (with re-render
-   verification + the `previouslyUsed` refactor) and the paint-time estimator + live readout.
-3. **Package it:** the preset ladder + `DrawDialog`/`Settings` UX · verification throttling.
-4. **Correct the objective:** P9 calibration plumbing early → engine cutover when in-game data
-   exists (multiplies P7 and P11).
-5. **Robot robustness:** P13 closed-loop + journal/resume (after the 2-opt fix).
-6. **Then:** P10 · P12 (after P7) · P11 (after P9) · P14 · P16 · P18-perceptual · B3 (with the
-   size cap).
-7. **Last:** P17 murals.
+### Phase 0 — Finish the foundation
 
-**Single highest-leverage item overall:** the determinism + benchmark foundation — because it
-is the only thing that turns every subsequent quality/speed change from "we think it helped"
-into a measured decision, and because it's cheaper to build than the proposal claims. The
-single highest-leverage *user-visible* change is the **blob-count budget + pruning** lever on
-the speed side (paint time is linear in N) and **per-shape alpha** on the quality side.
+- **F1 — Benchmark harness + perceptual metrics (the remaining half of P15).
+  NEXT, effort S–M, deps: none (determinism ✅).**
+  A repeatable runner over a small fixed image corpus (2–3 real photos + the
+  synthetic target) reporting score, SSIM, ΔE00, shapes/s, wall time per
+  config; promote the RNG seed and the relevant `USE_*` flags into a runtime
+  `GeneratorConfig`/`Settings` so configs can be A/B'd without recompiling.
+  Reuse `PerfProbe` (already in-tree) as the timing skeleton. Note the Gradle
+  7.2 / JDK constraint (run via Java 17 as the tests do, or javac-standalone
+  like `/tmp/borstbench`).
+  *Success: one command produces a per-config metrics table; same seed + same
+  config ⇒ byte-identical output twice.*
 
-> See `PERFORMANCE-PLAN.md` for the deep profile of the generation/preview phase, and
-> `FIXES-APPLIED.md` (branch `fix/review-findings`) for the bug fixes this plan sequences
-> around.
+### Phase 1 — Generation speed (measured wins from PERFORMANCE-PLAN.md)
+
+Order follows the perf plan's own sequencing; each lands with an F1 parity run.
+
+- **G1 — Drop simulated annealing; default classic hill climb. NEXT, S,
+  deps: none.** `USE_SIMULATED_ANNEALING = false` (→ `GeneratorConfig`). SA
+  measured *strictly worse*: 310 sequential evals/step vs classic's ~150, at
+  equal-or-worse score (0.29245 vs 0.29185).
+  *Success: refine evals/step halve; F1 score parity (≤0.5%) on the corpus.*
+- **G2 — Subsampled proxy evaluation for candidate ranking. NEXT, M,
+  deps: none (G1 first only for clean measurement). THE headline generation
+  change.** Rank the 1000 candidates on a strided pixel subset (stride 4 for
+  size idx ≥ 4, stride 2 for idx 3, exact below), scale sampled delta by
+  stride², then refine/commit the winner with the exact kernel unchanged. A
+  d=100 candidate drops 101 µs → ~7 µs; eval phase ~1.8× alone, and it's the
+  enabler for G3. Reference implementation:
+  `/tmp/borstbench/.../PerfProbe2.energyProxy`. New `differencePartialProxy`
+  in `BorstCore` + a rank-vs-exact path in `Worker`/`State`; exact kernels and
+  `BatchParallelEnergyTest` untouched. This kernel joins the coordinated
+  hot-loop family (§1.3): any later energy-metric change (Q1) must update it
+  in the same commit.
+  *Success: rank-fidelity test (exact top-1 ∈ proxy top-K) + F1 parity; step
+  time ≥1.5× faster at 1000 candidates.*
+- **G3 — Candidates 1000→500 and age 100→50, as Settings. NEXT, S, deps: G2,
+  F1.** Error-guided placement already concentrates candidates; measured
+  −30% step time at −0.00005 score (noise). Keep 1000/100 reachable via the
+  Setting; validate on *real* photos, not just the synthetic target.
+  *Success: F1 parity within 0.5% on 2–3 real photos, seeded.*
+- **G4 — Minor hot-path bundle. NEXT, S, deps: none.** Delete the dead
+  `Model.context` image + its `drawLines` (`Model.java:15,51,82` —
+  write-only); return the winner's color from eval so `Model.addShape` skips
+  the redundant `computeColor`; `GradientMap.selectSizeIndex` per-call
+  `float[6]` + 6×`Math.exp` → precomputed LUT; `ErrorMap.samplePosition`
+  packed-int return instead of `int[2]`/call; `Worker.counter`
+  AtomicInteger → LongAdder or delete; fix the false "precomputed alpha blend
+  tables / 33% fewer reads" comments in `BorstCore`.
+  *Success: `BatchParallelEnergyTest` + regression suite green; ~5–10%
+  measured on F1.*
+- **G5 — Parallel refine chains (top-K proxy candidates → K parallel classic
+  climbs, take best). LATER, M, deps: G2.** After G2 shrinks the eval phase,
+  the sequential refine loop is the Amdahl limit — this matters *more on
+  users' 8–16-thread x86 machines* than on this 4-core dev box. Chains are
+  independent; commit stays sequential. Only if F1 shows refine dominant
+  post-G2. (Same trigger for the one-pass sufficient-statistics kernel and
+  the Vector-API kernel — deferred, see PERFORMANCE-PLAN.md §c7.)
+
+*Phase-1 combined expectation (measured, honest): 4–6× end-to-end generation
+speedup at quality parity; ~8× if 250 candidates validates on real photos.*
+
+### Phase 2 — Quality (the coordinated `BorstCore` rewrite begins)
+
+- **Q1 — P8a+P8b perceptual color: OKLab palette snap + channel-weighted
+  energy. NEXT, S, deps: F1 (to prove it), G2 (proxy kernel must get the same
+  weights in the same commit).** Cheapest quality win, no external deps.
+  **Required correction stands:** the snap distance in `getClosestColor` must
+  use the *same weights as the energy* or ranking and snapping disagree,
+  reintroducing the discrete-suboptimality the optimal-color-then-snap design
+  avoids. 8c (dithering) stays flagged/LOW.
+  *Success: F1 shows ΔE00 improvement at equal shape count; snap and energy
+  provably share one metric (unit test).*
+- **Q2 — P7 per-shape alpha optimization. NEXT, M, deps: Q1 ordering only;
+  payoff multiplier is Phase 4.** Biggest untapped quality lever; the whole
+  downstream pipeline already carries per-shape alpha — only the generator is
+  locked (4 lock points: `Circle` alpha field, `Worker.getEnergy`,
+  `Model.alpha`, `BorstData.update`). Watch items stand: extend the sorter
+  cache key to `(size,color,alpha,shape)` (shared with P11); thread
+  `alphaIndex` through `State.getCopy`/`Circle.fromValues` (currently drops
+  it → undo/determinism bug); floor `minAlphaIndex`. **Correction stands:**
+  sim may improve 10–25% while the *painted sign* improves less until P9
+  calibrates the low-alpha blend.
+  *Success: F1 sim score/SSIM improve ≥10% at equal shape count,
+  determinism test still green.*
+
+### Phase 3 — Paint-side speed + UX (paint time is the dominant real-world cost)
+
+- **S1 — Blob-count budget selection + dead-blob pruning. NEXT, M, deps:
+  2-opt ✅, exact energy ✅; ship WITH the `previouslyUsed` refactor.** The
+  single biggest real-world lever: paint time is linear in N
+  (`T ≈ N·60ms + const`); 4000→1500 = 2.6×. Corrections stand: (1)
+  prune-then-**re-render-and-verify** the true score (substrate effect — the
+  per-blob bound isn't rigorous); (2) budget selection breaks the pure-prefix
+  `previouslyUsed` resume assumption — do the instruction-list refactor here
+  (same one R1/P13d needs; build once).
+  *Success: on the corpus, ≥30% blob reduction at ≤1% re-rendered score loss.*
+- **S2 — Paint-time estimator + live readout in `DrawDialog`. NEXT, M, deps:
+  2-opt ✅.** Replaces the `OverlayTopPanel` fudge and the (formerly
+  EDT-freezing) "Calculate Exact Time" button with a debounced background
+  `SwingWorker`: "≈ 1m 12s · ≈ 84% match". Cost model verified line-by-line
+  against `BobRustPainter`; persist `t_cap`.
+  *Success: estimate within ±10% of a real paint run.*
+- **S3 — Preset ladder (Blazing/Fast/Balanced/Max Quality) + verification
+  throttling + cps presets. LATER, S–M, deps: S1, S2, G3 (presets set the new
+  Settings).** Every knob maps to a real target; keep the slider as fine
+  budget control + "(Custom)" dirty state. Verification throttling ≈
+  2.5–3×/blob at the Blazing end (skip the ~2·t_cap `getPixelColor` tax);
+  mitigate reliability with sparse verification. (Retry-timer sub-item stays
+  dropped — `retryTime` already re-anchors per iteration.) Preset numbers
+  come from F1 runs, not formulas.
+  *Success: presets ship with measured (time, match%) labels from F1.*
+
+### Phase 4 — Correct the objective (long pole — start plumbing early)
+
+- **C1 — P9 measured paint model → persisted `CalibrationProfile`. NEXT
+  (plumbing) / LATER (engine cutover), M–H, blocked by: an in-game Rust
+  session.** The only item that fixes the objective itself; correctness
+  multiplier for Q2 (real alpha) and P11 (real square mask), and the *only*
+  path to resolving the deferred blend-divisor question (`>>>8` vs `/255` vs
+  the game's likely linear-space compositing). Bug 4 ✅ so the profile is safe
+  to persist. Remaining gaps stand: `CalibrationPatternGenerator` (6×6) and
+  `generateDebugDrawList` aren't wired together (the paint-in-game round trip
+  doesn't close); making `ALPHAS`/`SIZES` non-final forces rebuilding
+  `NumberLookup`, `CircleCache`, and the color LUT (class-load-time today).
+  Land the analyzer/profile plumbing behind flags alongside Phases 1–3;
+  cut the engine over when in-game data exists.
+  *Success: a profile round-trips paint→screenshot→analyze within tolerance
+  on a real sign, and the engine can run from it behind a flag.*
+
+### Phase 5 — Robot robustness
+
+- **R1 — P13 closed-loop painting + journal/resume. LATER, L, deps: 2-opt ✅,
+  S1's `previouslyUsed` refactor; 13a's delta-magnitude gate wants C1.**
+  Ship order inside: 13a false-retry hotfix + 13d journal/exact-resume + 13b
+  batch screenshot-diff verification first. Until calibrated, gate on delta
+  *sign* + tolerance, not magnitude. This also finally subsumes the deferred
+  `clickPointScaledDrawColor` false-retry (single-pixel oracle needs the
+  forward model).
+  *Success: kill the painter mid-run; resume completes with zero repainted or
+  skipped blobs on a real sign.*
+
+### Phase 6 — Secondary (validated KEEP, lower leverage or deeper deps)
+
+All LATER; corrections from the validation pass unchanged:
+
+- **P14 auto palette detection + setup validation** (M) — real
+  silent-collision bug (`putIfAbsent`, `BobRustPalette.java:60`) + 6-bit-LUT
+  aliasing; self-contained; don't trust the vestigial
+  `.with(GraphicsConfiguration)` HiDPI machinery.
+- **P16 headless CLI + plan format** (S–M) — unlocks CI benchmarking for F1
+  and murals; round-trip must compare against the `drawLines` composite, not
+  the antialiased `ShapeRender` preview.
+- **P18 live quality overlay** (S) — live-RMSE half ships independently
+  (`Model.getScore()` — NaN guard now moot thanks to exact energy ✅);
+  SSIM/ΔE00 half reuses F1's metrics package.
+- **P12 redundant-shape pruning + final color re-fit** (M) — refit is
+  strictly-non-negative and now NaN-safe ✅; ε=0 pruning yield stays
+  structurally small until Q2 adds opaque stamps — schedule after Q2. Reuse
+  the `drawLines` replay, not `ShapeRender` buffers.
+- **P10 edge-weighted objective** (L–M) — only with F1 evidence; re-weight
+  `ErrorMap` sampling in the same change or objective and placement disagree.
+- **P11 square brush in generator** (M, widest refactor) — hard-gated on C1
+  confirming the in-game square mask; last among quality items.
+- **B3 half-res drafts** — CONDITIONAL: only with the large-brush size cap
+  (cap half-res candidates to r ≤ 100/scale); ErrorMap crash prerequisite ✅.
+  Note G2's proxy eval already delivers most of what B3 chased — re-justify
+  against F1 numbers before building.
+- **Cleanup: delete `MultiResModel` + `USE_PROGRESSIVE_RESOLUTION`** (S) —
+  per PERFORMANCE-PLAN.md's rejection analysis: dead code, structurally
+  wrong (candidate cost is resolution-independent), superseded by G2.
+
+### Phase 7 — Last
+
+- **P17 multi-sign murals** (L) — best user-facing capability, deepest
+  dependency node (needs R1/13d + P16). Adds no engine improvement itself.
+
+---
+
+## 4. Priorities at a glance
+
+**Single highest-leverage remaining item:** F1 — it's now small (determinism
+✅ did the hard half) and it converts every Phase-1–3 change from "measured
+once on one box" into a regression-guarded decision.
+
+**Highest-leverage code changes:** G2 proxy ranking (measured ~4–6× generation
+with G1/G3) on the compute side; S1 blob budget/pruning (paint time linear in
+N) on the real-world-minutes side; Q2 per-shape alpha (with Q1 first) on the
+quality side.
+
+> Numbers and harness details: `PERFORMANCE-PLAN.md`. What the fix pass
+> changed and why: `FIXES-APPLIED.md`. Validation provenance of P7–P18:
+> the previous revision of this file (git history).
