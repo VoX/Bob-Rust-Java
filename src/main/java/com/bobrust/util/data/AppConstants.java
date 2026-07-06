@@ -41,8 +41,13 @@ public interface AppConstants {
 	boolean USE_ERROR_GUIDED_PLACEMENT = true;
 
 	// When true, use local gradient magnitude to bias circle size selection:
-	// small circles near edges/detail, large circles in smooth areas
-	boolean USE_ADAPTIVE_SIZE = true;
+	// small circles near edges/detail, large circles in smooth areas.
+	// Default false since the click-budget study: a shape costs ~1 click regardless of area, so the small-size
+	// bias overproduces low-per-click-value shapes at edges; measured pooled +0.0066 SSIM, -0.08 dE00 and 2.2x
+	// faster generation at 18k clicks with it OFF (docs/SPEED-QUALITY-PROPOSALS.md P1). With it off, Model's ctor
+	// creates no GradientMap, so Circle.mutateShape's position-mutation scale also reverts to the fixed 1.0 (that
+	// is exactly what the noAdaptive benchmark rows measured). Re-enable per config with adaptiveSize=true.
+	boolean USE_ADAPTIVE_SIZE = false;
 
 	// When true, use the combined single-pass color+energy evaluation in
 	// BorstCore.differencePartialThread (verified byte-identical to the classic

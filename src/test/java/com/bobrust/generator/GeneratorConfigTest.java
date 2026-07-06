@@ -21,7 +21,7 @@ class GeneratorConfigTest {
 		assertEquals(0L, config.seed());
 		assertFalse(config.useSimulatedAnnealing(), "G1: classic hill climb is the default");
 		assertTrue(config.useErrorGuidedPlacement());
-		assertTrue(config.useAdaptiveSize());
+		assertFalse(config.useAdaptiveSize(), "P1: adaptive size loses at a click budget -- see SPEED-QUALITY-PROPOSALS.md");
 		assertTrue(config.useBatchParallel());
 		assertTrue(config.useProxyRanking(), "G2: proxy candidate ranking is the default");
 		assertTrue(config.usePerceptualColor(), "Q1: perceptual color metric is the default");
@@ -107,6 +107,18 @@ class GeneratorConfigTest {
 
 		assertEquals(5, model.shapes.size());
 		assertFalse(Float.isNaN(model.getScore()));
+	}
+
+	@Test
+	void defaultModelHasNoGradientMap() {
+		// P1: adaptive size is off by default, so the default Model builds no GradientMap; enabling it per config
+		// brings the map back. (getWorker() is package-private; this test lives in com.bobrust.generator.)
+		BorstImage target = new BorstImage(testImage());
+		Model defaultModel = new Model(target, 0xFFFFFFFF, 128, GeneratorConfig.DEFAULT);
+		assertNull(defaultModel.getWorker().getGradientMap(), "P1: default has adaptive size off -> no gradient map");
+
+		Model adaptiveModel = new Model(target, 0xFFFFFFFF, 128, GeneratorConfig.DEFAULT.withUseAdaptiveSize(true));
+		assertNotNull(adaptiveModel.getWorker().getGradientMap(), "adaptiveSize=true rebuilds the gradient map");
 	}
 
 	private static BufferedImage testImage() {

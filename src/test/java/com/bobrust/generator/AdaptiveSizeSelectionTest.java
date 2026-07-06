@@ -242,16 +242,13 @@ class AdaptiveSizeSelectionTest {
 	private static Model runGenerator(BufferedImage testImage, int maxShapes, boolean useAdaptiveSize) {
 		BufferedImage argbImage = ensureArgb(testImage);
 		BorstImage target = new BorstImage(argbImage);
-		Model model = new Model(target, BACKGROUND, ALPHA);
+		// Drive adaptive size through the config. The default now has it OFF, so the "adaptive" arm must request
+		// it explicitly (previously this reflectively nulled the gradient map for the uniform arm and relied on
+		// the old adaptive-by-default). The uniform arm builds no gradient map at all.
+		Model model = new Model(target, BACKGROUND, ALPHA, GeneratorConfig.DEFAULT.withUseAdaptiveSize(useAdaptiveSize));
 
 		Worker worker = getWorker(model);
 		ErrorMap errorMap = getErrorMap(model);
-
-		if (!useAdaptiveSize) {
-			// Disable gradient map for uniform sizing
-			worker.setGradientMap(null);
-			setGradientMap(model, null);
-		}
 
 		for (int i = 0; i < maxShapes; i++) {
 			worker.init(model.current, model.getTotalError());
@@ -346,16 +343,6 @@ class AdaptiveSizeSelectionTest {
 			Field field = Model.class.getDeclaredField("errorMap");
 			field.setAccessible(true);
 			return (ErrorMap) field.get(model);
-		} catch (Exception e) {
-			throw new RuntimeException(e);
-		}
-	}
-
-	private static void setGradientMap(Model model, GradientMap gradientMap) {
-		try {
-			Field field = Model.class.getDeclaredField("gradientMap");
-			field.setAccessible(true);
-			field.set(model, gradientMap);
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}
