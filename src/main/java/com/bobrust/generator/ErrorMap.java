@@ -209,8 +209,13 @@ public class ErrorMap {
 	 * Sample a pixel position biased toward high-error regions.
 	 * Uses the alias table for O(1) cell selection, then uniform
 	 * random within the selected cell.
+	 *
+	 * <p>Returns the position packed as {@code (y << 16) | x} — this runs once
+	 * per candidate per step, and the packed return avoids allocating an
+	 * {@code int[2]} on that hot path. Sign images are far below 65536 pixels
+	 * per axis, so 16 bits per coordinate always suffice.
 	 */
-	public int[] samplePosition(Random rnd) {
+	public int samplePositionPacked(Random rnd) {
 		if (!tableValid) {
 			buildAliasTable();
 		}
@@ -236,6 +241,6 @@ public class ErrorMap {
 		int px = pxStart + rnd.nextInt(Math.max(1, Math.min(cellWidth, imageWidth - pxStart)));
 		int py = pyStart + rnd.nextInt(Math.max(1, Math.min(cellHeight, imageHeight - pyStart)));
 
-		return new int[]{Math.min(px, imageWidth - 1), Math.min(py, imageHeight - 1)};
+		return (Math.min(py, imageHeight - 1) << 16) | Math.min(px, imageWidth - 1);
 	}
 }

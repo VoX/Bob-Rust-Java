@@ -1,7 +1,7 @@
 package com.bobrust.generator;
 
 import java.util.Random;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.LongAdder;
 
 class Worker {
 	private final BorstImage target;
@@ -20,7 +20,12 @@ class Worker {
 	public final int w;
 	public final int h;
 	public long totalError;
-	private final AtomicInteger counter = new AtomicInteger();
+	/**
+	 * Debug-only count of exact energy evaluations per step (proxy ranking
+	 * evaluations are not counted). LongAdder because the eval phase increments
+	 * from the parallel stream; the exact value is only read once per step.
+	 */
+	private final LongAdder counter = new LongAdder();
 	private ErrorMap errorMap;
 	private GradientMap gradientMap;
 
@@ -74,16 +79,36 @@ class Worker {
 	public void init(BorstImage current, long totalError) {
 		this.current = current;
 		this.totalError = totalError;
-		this.counter.set(0);
+		this.counter.reset();
 	}
 
 	public float getEnergy(Circle circle) {
-		this.counter.incrementAndGet();
+		return getEnergy(circle, null);
+	}
+
+	/**
+	 * Exact energy of drawing {@code circle} on the current image. When
+	 * {@code colorOut} is non-null, the optimal color the kernel derived is
+	 * reported through it (see BorstCore.differencePartialThread) so the commit
+	 * path can skip its computeColor re-run.
+	 */
+	public float getEnergy(Circle circle, BorstColor[] colorOut) {
+		this.counter.increment();
 		int cache_index = BorstUtils.getClosestSizeIndex(circle.r);
-		return BorstCore.differencePartialThread(target, current, totalError, alpha, cache_index, circle.x, circle.y, config.useBatchParallel());
+		return BorstCore.differencePartialThread(target, current, totalError, alpha, cache_index, circle.x, circle.y, config.useBatchParallel(), colorOut);
+	}
+
+	/**
+	 * Approximate energy on a strided pixel subset — used ONLY to rank the
+	 * per-step random candidates against each other. The winning candidate is
+	 * always re-evaluated exactly before refinement and commit.
+	 */
+	public float getProxyEnergy(Circle circle) {
+		int cache_index = BorstUtils.getClosestSizeIndex(circle.r);
+		return BorstCore.differencePartialProxy(target, current, totalError, alpha, cache_index, circle.x, circle.y);
 	}
 
 	public int getCounter() {
-		return counter.get();
+		return counter.intValue();
 	}
 }

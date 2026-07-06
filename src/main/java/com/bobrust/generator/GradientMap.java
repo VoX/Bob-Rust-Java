@@ -25,6 +25,16 @@ public class GradientMap {
 	/** Normalized gradient values per grid cell, range [0,1]. */
 	final float[] cellGradients;
 
+	/**
+	 * Lazily built per-cell cumulative size weights for
+	 * {@link #selectSizeIndex}: entry {@code cell * numSizes + i} holds
+	 * {@code weights[0] + ... + weights[i]} accumulated in the same float order
+	 * as the previous per-call computation, so selection is bit-identical while
+	 * skipping the per-call {@code float[]} allocation and 6x {@code Math.exp}.
+	 * Invalidated by {@link #compute}. Only touched from the generator thread.
+	 */
+	private float[] cumulativeWeights;
+
 	public GradientMap(int imageWidth, int imageHeight) {
 		this(imageWidth, imageHeight, DEFAULT_GRID_DIM, DEFAULT_GRID_DIM);
 	}
@@ -100,6 +110,9 @@ public class GradientMap {
 				cellGradients[i] /= maxGradient;
 			}
 		}
+
+		// Cell gradients changed — rebuild the size-weight table on next use
+		cumulativeWeights = null;
 	}
 
 	/**
@@ -124,28 +137,47 @@ public class GradientMap {
 	 * @return index into BorstUtils.SIZES
 	 */
 	public int selectSizeIndex(Random rnd, int x, int y) {
-		float gradient = getGradient(x, y);
-		int numSizes = BorstUtils.SIZES.length;
-		float[] weights = new float[numSizes];
-		float totalWeight = 0;
+		int gx = Math.min(x / cellWidth, gridWidth - 1);
+		int gy = Math.min(y / cellHeight, gridHeight - 1);
+		if (gx < 0) gx = 0;
+		if (gy < 0) gy = 0;
 
-		for (int i = 0; i < numSizes; i++) {
-			float sizeNorm = (float) i / (numSizes - 1); // 0=smallest, 1=largest
-			// High gradient -> prefer small (low sizeNorm), low gradient -> prefer large
-			weights[i] = (float) Math.exp(-4.0 * Math.abs(sizeNorm - (1.0 - gradient)));
-			totalWeight += weights[i];
+		int numSizes = BorstUtils.SIZES.length;
+		float[] table = cumulativeWeights;
+		if (table == null) {
+			table = buildCumulativeWeights(numSizes);
+			cumulativeWeights = table;
 		}
 
-		// Weighted random selection
-		float r = rnd.nextFloat() * totalWeight;
-		float cumulative = 0;
+		// Weighted random selection over the precomputed cumulative weights
+		int base = (gy * gridWidth + gx) * numSizes;
+		float r = rnd.nextFloat() * table[base + numSizes - 1];
 		for (int i = 0; i < numSizes; i++) {
-			cumulative += weights[i];
-			if (r <= cumulative) {
+			if (r <= table[base + i]) {
 				return i;
 			}
 		}
 		return numSizes - 1; // fallback
+	}
+
+	/**
+	 * Precompute the cumulative size weights for every cell. Same expressions
+	 * and float accumulation order as the old per-call loop in
+	 * {@link #selectSizeIndex}, so the selection stays bit-identical:
+	 * high gradient favors small sizes, low gradient favors large ones.
+	 */
+	private float[] buildCumulativeWeights(int numSizes) {
+		float[] table = new float[cellGradients.length * numSizes];
+		for (int cell = 0; cell < cellGradients.length; cell++) {
+			float gradient = cellGradients[cell];
+			float cumulative = 0;
+			for (int i = 0; i < numSizes; i++) {
+				float sizeNorm = (float) i / (numSizes - 1); // 0=smallest, 1=largest
+				cumulative += (float) Math.exp(-4.0 * Math.abs(sizeNorm - (1.0 - gradient)));
+				table[cell * numSizes + i] = cumulative;
+			}
+		}
+		return table;
 	}
 
 	/**

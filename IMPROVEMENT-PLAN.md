@@ -51,12 +51,25 @@ blend-divisor mismatch (`>>>8` vs `/255` — needs measured calibration data,
 problem, §3 Phase 5), MultiResModel snap (dead code — recommend deletion, §3
 Phase 6), `PAINT_THRESHOLD`, GradientMap max-normalization caveat.
 
-**NOT done — the remaining work** (all of §3 below): the benchmark harness +
-perceptual metrics; every generation-speed item from PERFORMANCE-PLAN.md that
-isn't the batching revert (`USE_SIMULATED_ANNEALING` is still `true`,
-`max_random_states` still 1000, `age` still 100, the proxy kernel doesn't
-exist, the dead `Model.context` drawLines write is still at `Model.java:82`);
-and all quality / paint-speed / robustness / packaging features.
+**Also DONE since** (this branch):
+
+- ✅ **F1 benchmark harness + perceptual metrics** (`com.bobrust.benchmark.
+  BenchmarkHarness`, `com.bobrust.util.metrics`, runtime `GeneratorConfig`) —
+  commit cc792da.
+- ✅ **Phase G generation speed (G1–G4)** — measured on the F1 corpus, 4-core
+  Graviton: old production config vs new `GeneratorConfig.DEFAULT`
+  (`sa=false;proxy=true;states=500;age=100`) is **3.6× at 300 shapes and
+  4.9× at 800 shapes** end-to-end, at quality parity on the hard images
+  (nature improves on RMSE/SSIM/ΔE00; corpus ΔE00 sum +0.02% at 300 shapes).
+  The G4 bundle (dead `Model.context` removed, winner color reused at commit,
+  LongAdder counter, GradientMap weight LUT, packed ErrorMap sampling) is
+  **bit-exact** — identical pixel hashes for the old config before/after.
+  `age` stays 100: 50 measured 1.78× faster but −1.9% SSIM / +1.9% ΔE00
+  aggregate, outside the seed-noise band (a speed preset can set it later).
+
+**NOT done — the remaining work** (§3 below): all quality / paint-speed /
+robustness / packaging features (Q1+, S1+, C1, R1, …) and the deferred G5
+parallel-refine item.
 
 ---
 
@@ -128,40 +141,36 @@ and all quality / paint-speed / robustness / packaging features.
 
 Order follows the perf plan's own sequencing; each lands with an F1 parity run.
 
-- **G1 — Drop simulated annealing; default classic hill climb. NEXT, S,
-  deps: none.** `USE_SIMULATED_ANNEALING = false` (→ `GeneratorConfig`). SA
-  measured *strictly worse*: 310 sequential evals/step vs classic's ~150, at
-  equal-or-worse score (0.29245 vs 0.29185).
-  *Success: refine evals/step halve; F1 score parity (≤0.5%) on the corpus.*
-- **G2 — Subsampled proxy evaluation for candidate ranking. NEXT, M,
-  deps: none (G1 first only for clean measurement). THE headline generation
-  change.** Rank the 1000 candidates on a strided pixel subset (stride 4 for
-  size idx ≥ 4, stride 2 for idx 3, exact below), scale sampled delta by
-  stride², then refine/commit the winner with the exact kernel unchanged. A
-  d=100 candidate drops 101 µs → ~7 µs; eval phase ~1.8× alone, and it's the
-  enabler for G3. Reference implementation:
-  `/tmp/borstbench/.../PerfProbe2.energyProxy`. New `differencePartialProxy`
-  in `BorstCore` + a rank-vs-exact path in `Worker`/`State`; exact kernels and
-  `BatchParallelEnergyTest` untouched. This kernel joins the coordinated
-  hot-loop family (§1.3): any later energy-metric change (Q1) must update it
-  in the same commit.
-  *Success: rank-fidelity test (exact top-1 ∈ proxy top-K) + F1 parity; step
-  time ≥1.5× faster at 1000 candidates.*
-- **G3 — Candidates 1000→500 and age 100→50, as Settings. NEXT, S, deps: G2,
-  F1.** Error-guided placement already concentrates candidates; measured
-  −30% step time at −0.00005 score (noise). Keep 1000/100 reachable via the
-  Setting; validate on *real* photos, not just the synthetic target.
-  *Success: F1 parity within 0.5% on 2–3 real photos, seeded.*
-- **G4 — Minor hot-path bundle. NEXT, S, deps: none.** Delete the dead
-  `Model.context` image + its `drawLines` (`Model.java:15,51,82` —
-  write-only); return the winner's color from eval so `Model.addShape` skips
-  the redundant `computeColor`; `GradientMap.selectSizeIndex` per-call
-  `float[6]` + 6×`Math.exp` → precomputed LUT; `ErrorMap.samplePosition`
-  packed-int return instead of `int[2]`/call; `Worker.counter`
-  AtomicInteger → LongAdder or delete; fix the false "precomputed alpha blend
-  tables / 33% fewer reads" comments in `BorstCore`.
-  *Success: `BatchParallelEnergyTest` + regression suite green; ~5–10%
-  measured on F1.*
+- **G1 — Drop simulated annealing; default classic hill climb. ✅ DONE, S.**
+  `GeneratorConfig` default `sa=false` (SA path reachable via `sa=true`).
+  F1-measured at 1000 candidates: 1.2× overall, aggregate quality
+  equal-or-better (notably better on nature/photo_detail; marginally worse
+  on the near-converged trivial images).
+- **G2 — Subsampled proxy evaluation for candidate ranking. ✅ DONE, M. THE
+  headline generation change.** `BorstCore.differencePartialProxy` ranks
+  candidates on a strided pixel subset (`PROXY_STRIDE = {1,1,1,2,4,4}`),
+  scales the sampled delta by stride², then the winner's memoized score is
+  invalidated so refine/commit re-evaluate with the exact kernels — the
+  committed geometry, color and running total stay exact (ProxyRankingTest).
+  F1-measured: 2.3× at 1000 candidates at aggregate parity. Stride tuning:
+  {2,4,6} +7% speed but ΔE00 +1.4%; {2,6,8} broke parity and was net
+  *slower*. This kernel joins the coordinated hot-loop family (§1.3): any
+  later energy-metric change (Q1) must update it in the same commit.
+- **G3 — Candidates 1000→500 (GeneratorConfig). ✅ DONE, S.** F1-measured
+  at proxy-on: 1.13× at sub-1% aggregate deltas, within the measured
+  seed-to-seed noise band (SSIM ±1.7%, RMSE ±0.4% between seeds); 250 drifted
+  ~2.3% on every metric for only 7% more speed — rejected. **`age` stays
+  100**: 50 measured 1.78× faster but −1.9% SSIM / +1.9% ΔE00, outside
+  noise — post-G2 the refine phase dominates, so `age` now costs quality;
+  leave it to a future speed preset (S3) and to G5.
+- **G4 — Minor hot-path bundle. ✅ DONE, S.** Dead `Model.context` +
+  `drawLines` deleted; winner's exact-eval color threaded through
+  `State.color` so `Model.addShape` skips the `computeColor` re-run;
+  `GradientMap.selectSizeIndex` per-call `float[6]` + 6×`Math.exp` →
+  lazily-built per-cell cumulative LUT (bit-identical selection);
+  `ErrorMap.samplePositionPacked` returns a packed int; `Worker.counter` →
+  LongAdder. **Whole bundle verified bit-exact**: identical F1 pixel hashes
+  for the pre-G config before/after the change.
 - **G5 — Parallel refine chains (top-K proxy candidates → K parallel classic
   climbs, take best). LATER, M, deps: G2.** After G2 shrinks the eval phase,
   the sequential refine loop is the Amdahl limit — this matters *more on
@@ -170,8 +179,11 @@ Order follows the perf plan's own sequencing; each lands with an F1 parity run.
   post-G2. (Same trigger for the one-pass sufficient-statistics kernel and
   the Vector-API kernel — deferred, see PERFORMANCE-PLAN.md §c7.)
 
-*Phase-1 combined expectation (measured, honest): 4–6× end-to-end generation
-speedup at quality parity; ~8× if 250 candidates validates on real photos.*
+*Phase-1 outcome (measured on the F1 corpus, 128×128 images, 4-core Graviton):
+**3.6× at 300 shapes, 4.9× at 800 shapes** end-to-end vs the old production
+config, at hard-image quality parity. Larger targets clip less, so real
+sign-size images should sit at or above the plan's 4–6× band. 250 candidates
+and age=50 did NOT validate at parity — both stay config-reachable.*
 
 ### Phase 2 — Quality (the coordinated `BorstCore` rewrite begins)
 
@@ -292,14 +304,14 @@ All LATER; corrections from the validation pass unchanged:
 
 ## 4. Priorities at a glance
 
-**Single highest-leverage remaining item:** F1 — it's now small (determinism
-✅ did the hard half) and it converts every Phase-1–3 change from "measured
-once on one box" into a regression-guarded decision.
+**Landed:** F1 (harness + metrics + runtime config) and Phase G (G1–G4,
+measured 3.6–4.9× at quality parity, defaults tuned and pinned by tests).
 
-**Highest-leverage code changes:** G2 proxy ranking (measured ~4–6× generation
-with G1/G3) on the compute side; S1 blob budget/pruning (paint time linear in
-N) on the real-world-minutes side; Q2 per-shape alpha (with Q1 first) on the
-quality side.
+**Highest-leverage remaining code changes:** S1 blob budget/pruning (paint
+time linear in N) on the real-world-minutes side; Q2 per-shape alpha (with Q1
+first) on the quality side; G5 parallel refine chains on the compute side —
+post-G2 the sequential refine phase is now the dominant generation cost
+(halving candidates barely moved wall time on refine-heavy images).
 
 > Numbers and harness details: `PERFORMANCE-PLAN.md`. What the fix pass
 > changed and why: `FIXES-APPLIED.md`. Validation provenance of P7–P18:

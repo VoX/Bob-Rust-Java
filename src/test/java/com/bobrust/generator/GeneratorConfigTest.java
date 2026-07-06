@@ -10,18 +10,21 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class GeneratorConfigTest {
 	/**
-	 * The defaults ARE the previous compile-time behavior — this pins them so
-	 * a default-config run stays identical to the pre-GeneratorConfig code.
+	 * Pins the shipping defaults: the Phase-G tuned values, each backed by an
+	 * F1 benchmark run (classic hill climb, proxy candidate ranking, 500
+	 * candidates — see PERFORMANCE-PLAN.md). The pre-G behavior stays
+	 * reachable via "sa=true;proxy=false;states=1000;age=100".
 	 */
 	@Test
-	void defaultsMatchHistoricalConstants() {
+	void defaultsArePhaseGTunedValues() {
 		GeneratorConfig config = GeneratorConfig.DEFAULT;
 		assertEquals(0L, config.seed());
-		assertTrue(config.useSimulatedAnnealing());
+		assertFalse(config.useSimulatedAnnealing(), "G1: classic hill climb is the default");
 		assertTrue(config.useErrorGuidedPlacement());
 		assertTrue(config.useAdaptiveSize());
 		assertTrue(config.useBatchParallel());
-		assertEquals(1000, config.maxRandomStates());
+		assertTrue(config.useProxyRanking(), "G2: proxy candidate ranking is the default");
+		assertEquals(500, config.maxRandomStates(), "G3: harness-validated candidate count");
 		assertEquals(100, config.age());
 	}
 
@@ -29,7 +32,7 @@ class GeneratorConfigTest {
 	void serializeParseRoundTrips() {
 		assertEquals(GeneratorConfig.DEFAULT, GeneratorConfig.parse(GeneratorConfig.DEFAULT.serialize()));
 
-		GeneratorConfig custom = new GeneratorConfig(42L, false, false, true, false, 500, 50);
+		GeneratorConfig custom = new GeneratorConfig(42L, false, false, true, false, false, 750, 50);
 		assertEquals(custom, GeneratorConfig.parse(custom.serialize()));
 	}
 
@@ -50,6 +53,7 @@ class GeneratorConfigTest {
 		assertEquals(GeneratorConfig.DEFAULT.useErrorGuidedPlacement(), config.useErrorGuidedPlacement());
 		assertEquals(GeneratorConfig.DEFAULT.useAdaptiveSize(), config.useAdaptiveSize());
 		assertEquals(GeneratorConfig.DEFAULT.useBatchParallel(), config.useBatchParallel());
+		assertEquals(GeneratorConfig.DEFAULT.useProxyRanking(), config.useProxyRanking());
 		assertEquals(GeneratorConfig.DEFAULT.maxRandomStates(), config.maxRandomStates());
 	}
 

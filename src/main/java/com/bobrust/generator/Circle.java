@@ -67,9 +67,9 @@ public class Circle {
 	public void randomize(ErrorMap errorMap) {
 		Random rnd = worker.getRandom();
 		if (errorMap != null && rnd.nextFloat() < 0.8f) {
-			int[] pos = errorMap.samplePosition(rnd);
-			this.x = pos[0];
-			this.y = pos[1];
+			int packed = errorMap.samplePositionPacked(rnd);
+			this.x = packed & 0xffff;
+			this.y = packed >>> 16;
 		} else {
 			this.x = rnd.nextInt(worker.w);
 			this.y = rnd.nextInt(worker.h);

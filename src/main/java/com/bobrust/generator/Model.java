@@ -11,7 +11,6 @@ public class Model {
 	private final Worker worker;
 	private final GeneratorConfig config;
 	private final BorstImage target;
-	private final BorstImage context;
 	private final BorstImage beforeImage;
 	public final BorstImage current;
 		
@@ -52,7 +51,6 @@ public class Model {
 
 		this.totalError = BorstCore.differenceFullTotal(target, current);
 		this.score = BorstCore.scoreFromTotal(totalError, w, h);
-		this.context = new BorstImage(w, h);
 		this.worker = new Worker(target, alpha, config);
 		this.alpha = alpha;
 
@@ -71,11 +69,19 @@ public class Model {
 		}
 	}
 
-	private void addShape(Circle shape) {
+	/**
+	 * Commit a shape to the model. {@code knownColor} is the exact optimal
+	 * color the winner's last exact energy evaluation derived (identical math,
+	 * same current image — see State#color); passing null recomputes it here.
+	 * Geometry, color and the running total are exact either way.
+	 */
+	private void addShape(Circle shape, BorstColor knownColor) {
 		beforeImage.draw(current);
 
 		int cache_index = BorstUtils.getClosestSizeIndex(shape.r);
-		BorstColor color = BorstCore.computeColor(target, current, alpha, cache_index, shape.x, shape.y);
+		BorstColor color = (knownColor != null)
+			? knownColor
+			: BorstCore.computeColor(target, current, alpha, cache_index, shape.x, shape.y);
 
 		BorstCore.drawLines(current, color, alpha, cache_index, shape.x, shape.y);
 		this.totalError = BorstCore.differencePartialTotal(target, beforeImage, current, totalError, cache_index, shape.x, shape.y);
@@ -83,20 +89,18 @@ public class Model {
 		shapes.add(shape);
 		colors.add(color);
 
-		BorstCore.drawLines(context, color, alpha, cache_index, shape.x, shape.y);
-
 		// Incrementally update the error map after drawing the new shape
 		if (errorMap != null) {
 			errorMap.updateIncremental(target, current, shape.x, shape.y, cache_index);
 		}
 	}
-	
+
 	/**
 	 * Add a pre-defined shape to this model without running optimization.
 	 * Used by MultiResModel to propagate shapes from lower to higher resolutions.
 	 */
 	public void addExternalShape(Circle shape) {
-		addShape(shape);
+		addShape(shape, null);
 	}
 
 	/** Returns the current model score. */
@@ -114,8 +118,8 @@ public class Model {
 		return worker;
 	}
 
-	// max_random_states and age moved to GeneratorConfig (defaults 1000 / 100)
-	private static final int times = 1; // SA explores well enough without multiple chains; keeps speed comparable to original
+	// max_random_states and age moved to GeneratorConfig
+	private static final int times = 1; // one refine chain per step; parallel chains are a deferred item (perf plan #7)
 
 	private List<State> randomStates;
 
@@ -129,7 +133,7 @@ public class Model {
 		}
 
 		State state = HillClimbGenerator.getBestHillClimbState(randomStates, config.age(), times, errorMap);
-		addShape(state.shape);
+		addShape(state.shape, state.color);
 
 		return worker.getCounter();
 	}

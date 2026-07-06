@@ -1,5 +1,17 @@
 # Generation-Phase Performance Plan
 
+> **STATUS (2026-07-06): items #1–#6 are IMPLEMENTED** on `fix/review-findings`
+> as Phase G (#2 had landed earlier with the bug-fix pass). Re-measured with
+> the F1 harness (`./gradlew benchmark`, 128×128 corpus, 300/800 shapes per
+> image): old production config vs the new `GeneratorConfig.DEFAULT`
+> (`sa=false;proxy=true;states=500;age=100`) = **3.6× / 4.9× end-to-end** at
+> hard-image quality parity. Two deviations from the letter of this plan, both
+> harness-driven: **age stays 100** (50 measured −1.9% SSIM / +1.9% ΔE00
+> aggregate — this plan's "score unchanged" held only for RMSE on the single
+> synthetic target) and **proxy strides are pinned at {2,4,4}** (idx 3/4/5;
+> coarser broke ΔE00 parity). #7 parallel refine is now the top remaining
+> lever: post-proxy, the sequential refine phase dominates step time.
+
 Scope: the plan-calculation phase only — `Model.processStep()` and everything it
 calls, i.e. the hill-climb loop that turns the target image into circles before
 any painting happens. Painting speed is out of scope.

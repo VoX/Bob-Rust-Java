@@ -388,12 +388,6 @@ class AdaptiveSizeSelectionTest {
 	}
 
 	private static void addShapeToModel(Model model, Circle shape) {
-		try {
-			Method method = Model.class.getDeclaredMethod("addShape", Circle.class);
-			method.setAccessible(true);
-			method.invoke(model, shape);
-		} catch (Exception e) {
-			throw new RuntimeException(e);
-		}
+		model.addExternalShape(shape);
 	}
 }

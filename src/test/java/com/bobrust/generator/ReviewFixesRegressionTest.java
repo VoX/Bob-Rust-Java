@@ -42,9 +42,11 @@ class ReviewFixesRegressionTest {
 
 		Random rnd = new Random(1);
 		for (int i = 0; i < 10_000; i++) {
-			int[] pos = map.samplePosition(rnd);
-			assertTrue(pos[0] >= 0 && pos[0] < 100, "x in bounds: " + pos[0]);
-			assertTrue(pos[1] >= 0 && pos[1] < 100, "y in bounds: " + pos[1]);
+			int packed = map.samplePositionPacked(rnd);
+			int x = packed & 0xffff;
+			int y = packed >>> 16;
+			assertTrue(x >= 0 && x < 100, "x in bounds: " + x);
+			assertTrue(y >= 0 && y < 100, "y in bounds: " + y);
 		}
 	}
 

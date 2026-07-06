@@ -31,8 +31,11 @@ public interface AppConstants {
 	// HillClimbGenerator actually consult. Override at runtime through the
 	// SettingsGeneratorConfig property or the benchmark harness.
 
-	// When true, use simulated annealing instead of pure hill climbing for shape optimization
-	boolean USE_SIMULATED_ANNEALING = true;
+	// When true, use simulated annealing instead of pure hill climbing for shape
+	// optimization. Default false: SA measured +25% refine cost at equal-or-worse
+	// quality on the F1 corpus (PERFORMANCE-PLAN.md item 3). The SA path stays
+	// reachable via GeneratorConfig ("sa=true").
+	boolean USE_SIMULATED_ANNEALING = false;
 
 	// When true, bias random circle placement toward high-error regions using importance sampling
 	boolean USE_ERROR_GUIDED_PLACEMENT = true;
@@ -45,6 +48,13 @@ public interface AppConstants {
 	// BorstCore.differencePartialThread (verified byte-identical to the classic
 	// two-pass implementation by BatchParallelEnergyTest)
 	boolean USE_BATCH_PARALLEL = true;
+
+	// When true, rank the per-step random candidates with a strided (subsampled)
+	// energy kernel and re-evaluate only the winner exactly. Ranking is the
+	// measured 61-71% of step time and only needs an ordering, not exact values;
+	// the refine and commit paths always use the exact kernels, so the committed
+	// geometry, color and running score are unaffected (ProxyRankingTest).
+	boolean USE_PROXY_RANKING = true;
 
 	// DISABLED: 2-opt reorders blobs on palette+travel cost with no awareness of
 	// the sorter's overlap-precedence invariant (a blob may only be painted after

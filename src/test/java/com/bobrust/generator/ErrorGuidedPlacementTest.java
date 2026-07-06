@@ -168,8 +168,8 @@ class ErrorGuidedPlacementTest {
 		int topLeftCount = 0;
 		int totalSamples = 10000;
 		for (int i = 0; i < totalSamples; i++) {
-			int[] pos = map.samplePosition(rnd);
-			if (pos[0] < 32 && pos[1] < 32) {
+			int packed = map.samplePositionPacked(rnd);
+			if ((packed & 0xffff) < 32 && (packed >>> 16) < 32) {
 				topLeftCount++;
 			}
 		}
@@ -332,12 +332,6 @@ class ErrorGuidedPlacementTest {
 	}
 
 	private static void addShapeToModel(Model model, Circle shape) {
-		try {
-			Method method = Model.class.getDeclaredMethod("addShape", Circle.class);
-			method.setAccessible(true);
-			method.invoke(model, shape);
-		} catch (Exception e) {
-			throw new RuntimeException(e);
-		}
+		model.addExternalShape(shape);
 	}
 }

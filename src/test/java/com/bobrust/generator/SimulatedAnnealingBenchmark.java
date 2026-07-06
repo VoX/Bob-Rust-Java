@@ -99,13 +99,7 @@ class SimulatedAnnealingBenchmark {
 
 	/** Add a shape to the model using its internal addShape logic */
 	private static void addShapeToModel(Model model, Circle shape) {
-		try {
-			var method = Model.class.getDeclaredMethod("addShape", Circle.class);
-			method.setAccessible(true);
-			method.invoke(model, shape);
-		} catch (Exception e) {
-			throw new RuntimeException(e);
-		}
+		model.addExternalShape(shape);
 	}
 
 	// ---- Test 3: Temperature Schedule Validation ----

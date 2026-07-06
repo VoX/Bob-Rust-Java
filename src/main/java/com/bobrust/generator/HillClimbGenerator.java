@@ -17,21 +17,39 @@ class HillClimbGenerator {
 		for (int i = 0; i < len; i++) {
 			State state = random_states.get(i);
 			state.score = -1;
+			state.color = null;
 			state.shape.randomize(errorMap);
 		}
 
-		random_states.parallelStream().forEach(State::getEnergy);
+		// The candidates only need to be RANKED against each other — only the
+		// winner is ever refined and committed. With proxy ranking on, large
+		// circles (the measured ~93% of ranking cost) are scored on a strided
+		// pixel subset instead of exactly; the winner's score is invalidated
+		// below so every downstream evaluation is exact again.
+		final boolean proxy = random_states.get(0).getWorker().getConfig().useProxyRanking();
+		if (proxy) {
+			random_states.parallelStream().forEach(State::getProxyEnergy);
+		} else {
+			random_states.parallelStream().forEach(State::getEnergy);
+		}
 
 		float bestEnergy = 0;
 		State bestState = null;
 		for (int i = 0; i < len; i++) {
 			State state = random_states.get(i);
-			float energy = state.getEnergy();
+			float energy = state.score;
 
 			if (bestState == null || energy < bestEnergy) {
 				bestEnergy = energy;
 				bestState = state;
 			}
+		}
+
+		if (proxy) {
+			// The ranking score is approximate; force the refine/commit path to
+			// re-evaluate the winner with the exact kernel.
+			bestState.score = -1;
+			bestState.color = null;
 		}
 
 		return bestState;
