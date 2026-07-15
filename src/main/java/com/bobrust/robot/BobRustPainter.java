@@ -1,13 +1,15 @@
 package com.bobrust.robot;
 
 import java.awt.*;
-import java.awt.event.InputEvent;
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.BiConsumer;
 
 import com.bobrust.robot.error.PaintingInterrupted;
+import com.bobrust.robot.io.AwtRobotIO;
+import com.bobrust.robot.io.PacedInput;
+import com.bobrust.robot.io.RobotIO;
 import com.bobrust.settings.Settings;
 import com.bobrust.util.debug.DebugUtil;
 import org.apache.logging.log4j.LogManager;
@@ -20,9 +22,9 @@ import com.bobrust.util.Sign;
 
 public class BobRustPainter {
 	private static final Logger LOGGER = LogManager.getLogger(BobRustPainter.class);
-	
+
 	// The maximum distance the mouse can be from the correct position
-	private static final double MAXIMUM_DISPLACEMENT = 10;
+	private static final double MAXIMUM_DISPLACEMENT = PacedInput.MAXIMUM_DISPLACEMENT;
 	private static final boolean ALLOW_PRESSES = true;
 	// Radius of the pixel disc sampled around the color preview point when
 	// verifying a color change. A single pixel is too fragile when the
@@ -35,33 +37,40 @@ public class BobRustPainter {
 	private double widthDelta;
 	private double heightDelta;
 	private Rectangle screenBounds;
-	
+
+	// The device seam + pacing discipline (extracted, PLAN-PALETTIZED-MODE §6);
+	// bound per paint run in startDrawing
+	private RobotIO io;
+	private PacedInput paced;
+
 	// Exception
 	private int drawnShapes;
-	
+
 	public BobRustPainter(BobRustPalette palette) {
 		this.palette = palette;
 	}
-	
+
 	public boolean startDrawing(GraphicsConfiguration monitor, Rectangle canvasArea, BlobList list, BiConsumer<Integer, Integer> renderCallback) throws PaintingInterrupted {
 		// Reset values
 		this.drawnShapes = 0;
-		
+
 		if (list.size() < 1) {
 			return true;
 		}
-		
+
 		Robot robot;
 		try {
 			robot = new Robot(monitor.getDevice());
 		} catch (AWTException e) {
 			return false;
 		}
-		
+		this.io = new AwtRobotIO(robot);
+		this.paced = new PacedInput(io, () -> drawnShapes, ALLOW_PRESSES);
+
 		{
 			GraphicsDevice gd = monitor.getDevice();
 			Rectangle bounds = monitor.getBounds();
-			
+
 			displayX = bounds.x;
 			displayY = bounds.y;
 			widthDelta = bounds.getWidth() / (double)gd.getDisplayMode().getWidth();
@@ -70,9 +79,9 @@ public class BobRustPainter {
 			// space the getPixelColor calls use. Captures are clamped to this
 			screenBounds = new Rectangle(0, 0, bounds.width, bounds.height);
 		}
-		
+
 		Sign signType = Settings.SettingsSign.get();
-		
+
 		int clickInterval = Settings.SettingsClickInterval.get();
 		double autoDelay = 1000.0 / (clickInterval * 3.0);
 		int autosaveInterval = Settings.SettingsAutosaveInterval.get();
@@ -81,227 +90,193 @@ public class BobRustPainter {
 		// verification below is never skipped — a missed color change would
 		// corrupt every following blob.
 		int verifyInterval = Math.max(1, Settings.SettingsClickVerifyInterval.get());
-		
+
 		// Configure the robot
 		robot.setAutoDelay(0);
 		List<Blob> blobList = list.getList();
 		int count = blobList.size();
 		int signWidth = signType.getWidth();
 		int signHeight = signType.getHeight();
-		
+
 		// Last fields
 		Point lastPoint = new Point(0, 0);
 		int lastColor;
 		int lastSize;
 		int lastAlpha;
 		int lastShape;
-		
+
 		{
 			Blob startBlob = blobList.get(0);
-			
+
 			// Make sure that we have selected the game
-			clickPoint(robot, palette.getFocusPoint(), 4, 50);
-			
+			clickPoint(palette.getFocusPoint(), 4, 50);
+
 			// Select first color to prevent exception
 			Point colorPoint = palette.getColorButton(BorstUtils.getClosestColor(startBlob.color));
 			if (colorPoint != null) {
-				clickColor(robot, colorPoint, 4, 50);
+				clickColor(colorPoint, 4, 50);
 			} else {
 				LOGGER.error("Could not draw color '" + startBlob.color + "' as it does not exist in the palette");
 			}
-			
-			clickPoint(robot, palette.getSizeButton(startBlob.sizeIndex), 4, 50);
-			clickPoint(robot, palette.getAlphaButton(startBlob.alphaIndex), 4, 50);
-			clickPoint(robot, palette.getShapeButton(startBlob.shapeIndex), 4, 50);
-			
+
+			clickPoint(palette.getSizeButton(startBlob.sizeIndex), 4, 50);
+			clickPoint(palette.getAlphaButton(startBlob.alphaIndex), 4, 50);
+			clickPoint(palette.getShapeButton(startBlob.shapeIndex), 4, 50);
+
 			// Fill in last color information
 			lastColor = startBlob.colorIndex;
 			lastSize = startBlob.sizeIndex;
 			lastAlpha = startBlob.alphaIndex;
 			lastShape = startBlob.shapeIndex;
 		}
-		
+
 		for (int i = 0, actions = 1; i < count; i++, actions++) {
 			Blob blob = blobList.get(i);
-			
+
 			// Change the size
 			if (lastSize != blob.sizeIndex) {
-				clickSlider(robot, palette.getSizeButton(blob.sizeIndex), 20, autoDelay);
+				clickSlider(palette.getSizeButton(blob.sizeIndex), 20, autoDelay);
 				lastSize = blob.sizeIndex;
 				actions++;
 			}
-			
+
 			// Change the color
 			if (lastColor != blob.colorIndex) { // Without 20 here it will not work
 				Point colorPoint = palette.getColorButton(BorstUtils.getClosestColor(blob.color));
 				if (colorPoint != null) {
-					clickColor(robot, colorPoint, 20, autoDelay);
+					clickColor(colorPoint, 20, autoDelay);
 					lastColor = blob.colorIndex;
 					actions++;
 				} else {
 					LOGGER.error("Could not draw color '" + blob.color + "' as it does not exist in the palette");
 				}
 			}
-			
+
 			// Change the alpha
 			if (lastAlpha != blob.alphaIndex) {
-				clickSlider(robot, palette.getAlphaButton(blob.alphaIndex), 20, autoDelay);
+				clickSlider(palette.getAlphaButton(blob.alphaIndex), 20, autoDelay);
 				lastAlpha = blob.alphaIndex;
 				actions++;
 			}
-			
+
 			// Change the shape
 			if (lastShape != blob.shapeIndex) {
-				clickSlider(robot, palette.getShapeButton(blob.shapeIndex), 20, autoDelay);
+				clickSlider(palette.getShapeButton(blob.shapeIndex), 20, autoDelay);
 				lastShape = blob.shapeIndex;
 				actions++;
 			}
-			
+
 			// Blob coordinates to sign coordinates
 			double dx = blob.x / (double) signWidth;
 			double dy = blob.y / (double) signHeight;
-			
+
 			// Sign coordinates to canvas coordinates
 			double tx = dx * canvasArea.width + canvasArea.x;
 			double ty = dy * canvasArea.height + canvasArea.y;
-			
+
 			// Canvas coordinates to screen coordinates
 			int sx = (int) tx + displayX;
 			int sy = (int) ty + displayY;
-			
+
 			lastPoint.setLocation(sx, sy);
-			clickPointScaledDrawColor(robot, lastPoint, autoDelay, (i % verifyInterval) == 0);
-			
+			clickPointScaledDrawColor(lastPoint, autoDelay, (i % verifyInterval) == 0);
+
 			if (i > 0 && (i % autosaveInterval) == 0) {
-				clickPoint(robot, palette.getSaveButton(), autoDelay);
+				clickPoint(palette.getSaveButton(), autoDelay);
 				actions++;
 			}
-			
+
 			drawnShapes += 1;
 			renderCallback.accept(drawnShapes, count);
 		}
-		
+
 		// Make sure that we save the painting
-		clickPoint(robot, palette.getSaveButton(), 4, autoDelay);
-		
+		clickPoint(palette.getSaveButton(), 4, autoDelay);
+
 		// Return the result
 		throw new PaintingInterrupted(drawnShapes, PaintingInterrupted.InterruptType.PaintingFinished);
 	}
-	
+
 	private Point transformPoint(Point point) {
 		return new Point(
 			displayX + point.x,
 			displayY + point.y
 		);
 	}
-	
-	private void clickPoint(Robot robot, Point point, int times, double delay) throws PaintingInterrupted {
+
+	private void clickPoint(Point point, int times, double delay) throws PaintingInterrupted {
 		for (int i = 0; i < times; i++) {
-			clickPoint(robot, point, delay);
+			clickPoint(point, delay);
 		}
 	}
-	
+
 	/**
 	 * Click a point on the screen with a scaled point. When {@code verify} is
 	 * false (S3 sparse verification) the two {@code getPixelColor} screen
 	 * captures and the retry loop are skipped — the click keeps the exact same
 	 * three-delay cadence, it just drops the ~2 capture tax.
 	 */
-	private void clickPointScaledDrawColor(Robot robot, Point point, double delay, boolean verify) throws PaintingInterrupted {
-		robot.mouseMove(point.x, point.y);
-		addTimeDelay(System.nanoTime() / 1000000.0 + delay);
+	private void clickPointScaledDrawColor(Point point, double delay, boolean verify) throws PaintingInterrupted {
+		io.mouseMove(point.x, point.y);
+		paced.addTimeDelay(io.currentTimeMs() + delay);
 
 		if (!verify) {
-			double time = System.nanoTime() / 1000000.0;
+			double time = io.currentTimeMs();
 
 			if (ALLOW_PRESSES) {
-				robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+				io.mousePress();
 			}
-			addTimeDelay(time + delay);
+			paced.addTimeDelay(time + delay);
 
 			if (ALLOW_PRESSES) {
-				robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+				io.mouseRelease();
 			}
-			addTimeDelay(time + delay * 2.0);
+			paced.addTimeDelay(time + delay * 2.0);
 
-			checkMouseDisplacement(point);
+			paced.checkMouseDisplacement(point);
 			return;
 		}
 
-		Color before = robot.getPixelColor(point.x, point.y);
+		int before = io.getPixelRgb(point.x, point.y);
 
 		int maxAttempts = 3;
 		do {
-			double retryTime = System.nanoTime() / 1000000.0;
+			double retryTime = io.currentTimeMs();
 
 			if (ALLOW_PRESSES) {
-				robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+				io.mousePress();
 			}
-			addTimeDelay(retryTime + delay);
+			paced.addTimeDelay(retryTime + delay);
 
 			if (ALLOW_PRESSES) {
-				robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+				io.mouseRelease();
 			}
-			addTimeDelay(retryTime + delay * 2.0);
+			paced.addTimeDelay(retryTime + delay * 2.0);
 
-			Color after = robot.getPixelColor(point.x, point.y);
-			if (!before.equals(after)) {
+			int after = io.getPixelRgb(point.x, point.y);
+			if (before != after) {
 				break;
 			}
 
-			addTimeDelay(retryTime + delay * 3.0);
+			paced.addTimeDelay(retryTime + delay * 3.0);
 		} while (maxAttempts-- > 0);
 
 		if (maxAttempts < 0) {
 			LOGGER.warn("Potentially failed to paint color! Will still keep trying to draw");
 		}
 
-		checkMouseDisplacement(point);
+		paced.checkMouseDisplacement(point);
 	}
 
-	/** Interrupt painting if the user moved the mouse away from the target. */
-	private void checkMouseDisplacement(Point point) throws PaintingInterrupted {
-		var pointerInfo = MouseInfo.getPointerInfo();
-		if (pointerInfo != null) {
-			double distance = point.distance(pointerInfo.getLocation());
-			if (distance > MAXIMUM_DISPLACEMENT) {
-				throw new PaintingInterrupted(drawnShapes, PaintingInterrupted.InterruptType.MouseMoved);
-			}
-		}
+	private void clickPoint(Point point, double delay) throws PaintingInterrupted {
+		paced.clickPoint(transformPoint(point), delay);
 	}
-	
-	private void clickPoint(Robot robot, Point point, double delay) throws PaintingInterrupted {
-		point = transformPoint(point);
 
-		double time = System.nanoTime() / 1000000.0;
-
-		robot.mouseMove(point.x, point.y);
-		addTimeDelay(time + delay);
-
-		if (ALLOW_PRESSES) {
-			robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
-		}
-		addTimeDelay(time + delay * 2.0);
-
-		if (ALLOW_PRESSES) {
-			robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
-		}
-		addTimeDelay(time + delay * 3.0);
-
-		var pointerInfo = MouseInfo.getPointerInfo();
-		if (pointerInfo != null) {
-			double distance = point.distance(pointerInfo.getLocation());
-			if (distance > MAXIMUM_DISPLACEMENT) {
-				throw new PaintingInterrupted(drawnShapes, PaintingInterrupted.InterruptType.MouseMoved);
-			}
-		}
-	}
-	
-	private void clickSlider(Robot robot, Point point, int maxAttempts, double delay) throws PaintingInterrupted {
+	private void clickSlider(Point point, int maxAttempts, double delay) throws PaintingInterrupted {
 		// Make sure that we press the size
 		while (maxAttempts-- > 0) {
-			clickPoint(robot, point, delay);
-			
+			clickPoint(point, delay);
+
 			/*
 			DebugUtil.debugShowImage(
 				robot.createScreenCapture(new Rectangle(
@@ -312,16 +287,16 @@ public class BobRustPainter {
 				1
 			);
 			*/
-			
+
 			// TODO: Potential bugs. Because rust uses those weird random patterns this might not work anymore :/
-			Color after    = robot.getPixelColor(point.x - 1, point.y);
-			Color afterOne = robot.getPixelColor(point.x + 1, point.y);
-			if (after.getGreen() > 120 && afterOne.getGreen() < 120) {
+			int after    = io.getPixelRgb(point.x - 1, point.y);
+			int afterOne = io.getPixelRgb(point.x + 1, point.y);
+			if (((after >> 8) & 0xff) > 120 && ((afterOne >> 8) & 0xff) < 120) {
 				return;
 			}
 		}
 	}
-	
+
 	/**
 	 * Click a color swatch and verify that the change registered by watching
 	 * the color preview. A small disc of pixels around the configured preview
@@ -329,28 +304,28 @@ public class BobRustPainter {
 	 * if any sampled pixel changed the color change is treated as successful.
 	 * Falls back to the old single pixel check if the region cannot be captured.
 	 */
-	private void clickColor(Robot robot, Point point, int maxAttempts, double delay) throws PaintingInterrupted {
+	private void clickColor(Point point, int maxAttempts, double delay) throws PaintingInterrupted {
 		Point colorPreview = palette.getColorPreview();
 
 		Rectangle region = getPreviewRegion(colorPreview);
-		int[] before = (region != null) ? capturePreviewDisc(robot, region, colorPreview) : null;
+		int[] before = (region != null) ? capturePreviewDisc(region, colorPreview) : null;
 
 		if (before == null || before.length == 0) {
-			Color beforePixel = robot.getPixelColor(colorPreview.x, colorPreview.y);
+			int beforePixel = io.getPixelRgb(colorPreview.x, colorPreview.y);
 
 			while (maxAttempts-- > 0) {
-				clickPoint(robot, point, delay);
+				clickPoint(point, delay);
 
-				Color after = robot.getPixelColor(colorPreview.x, colorPreview.y);
-				if (!beforePixel.equals(after)) {
+				int after = io.getPixelRgb(colorPreview.x, colorPreview.y);
+				if (beforePixel != after) {
 					return;
 				}
 			}
 		} else {
 			while (maxAttempts-- > 0) {
-				clickPoint(robot, point, delay);
+				clickPoint(point, delay);
 
-				int[] after = capturePreviewDisc(robot, region, colorPreview);
+				int[] after = capturePreviewDisc(region, colorPreview);
 				if (after == null) {
 					// The screen capture stopped working mid verify. Retrying
 					// would burn the remaining attempts without verification
@@ -391,10 +366,10 @@ public class BobRustPainter {
 	 * pixels within {@link #COLOR_PREVIEW_RADIUS} of the preview point.
 	 * Returns {@code null} if the screen could not be captured.
 	 */
-	private int[] capturePreviewDisc(Robot robot, Rectangle region, Point center) {
+	private int[] capturePreviewDisc(Rectangle region, Point center) {
 		BufferedImage image;
 		try {
-			image = robot.createScreenCapture(region);
+			image = io.createScreenCapture(region);
 		} catch (RuntimeException e) {
 			LOGGER.warn("Failed to capture the color preview region: {}", e.toString());
 			return null;
@@ -447,20 +422,5 @@ public class BobRustPainter {
 		}
 
 		return false;
-	}
-	
-	/**
-	 * This method is used to provide a more accurate timing than {@code Robot.setAutoDelay}.
-	 */
-	private void addTimeDelay(double expected) throws PaintingInterrupted {
-		double time = expected - (System.nanoTime() / 1000000.0);
-		if (time < 0) return;
-		
-		try {
-			Thread.sleep(Math.round(time));
-		} catch (InterruptedException ignored) {
-			Thread.currentThread().interrupt();
-			throw new PaintingInterrupted(drawnShapes, PaintingInterrupted.InterruptType.ThreadInterrupted);
-		}
 	}
 }
