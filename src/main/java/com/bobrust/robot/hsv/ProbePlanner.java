@@ -4,6 +4,7 @@ import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.bobrust.robot.error.PaintingInterrupted;
 import com.bobrust.util.metrics.Ciede2000;
 
 /**
@@ -52,7 +53,7 @@ public final class ProbePlanner {
 
 	/** Runs the probe sequence and gates; never clicks outside the marked rects. */
 	public static ProbeResult probe(PickerSensor sensor, Rectangle svRect, Rectangle hueRect, int probesPerAxis)
-			throws InterruptedException {
+			throws PaintingInterrupted {
 		int n = Math.max(3, probesPerAxis);
 		int svRight = svRect.x + svRect.width - 2;
 		int hueMid = hueRect.y + hueRect.height / 2;
@@ -111,7 +112,7 @@ public final class ProbePlanner {
 
 		if (hueMax - hueMin < MIN_HUE_SPAN) {
 			return new ProbeResult(null, Double.MAX_VALUE,
-				("hue readbacks span only %.0f째 - the marked rect is not a hue bar, or the COLOUR panel "
+				("hue readbacks span only %.0f deg - the marked rect is not a hue bar, or the COLOUR panel "
 					+ "is not toggled to the HSV picker").formatted((hueMax - hueMin) * 360));
 		}
 

@@ -34,11 +34,24 @@ public final class SquareTiler {
 	 *                   Null means every cell is painted.
 	 */
 	public static PalettizedPaintPlan tile(int[] labels, int gridW, int gridH, int[] paletteRgb, boolean[] paintable) {
+		return tile(labels, gridW, gridH, paletteRgb, paintable, MAX_SIDE);
+	}
+
+	/**
+	 * Tiles with an explicit side cap — the planner passes
+	 * {@link SquareBrushGeometry#maxSideCells} so every stamp's SIZE stays
+	 * within the game's slider range.
+	 */
+	public static PalettizedPaintPlan tile(int[] labels, int gridW, int gridH, int[] paletteRgb, boolean[] paintable,
+			int maxSide) {
 		if (labels.length != gridW * gridH) {
 			throw new IllegalArgumentException("labels length " + labels.length + " != " + gridW + "x" + gridH);
 		}
 		if (paintable != null && paintable.length != labels.length) {
 			throw new IllegalArgumentException("paintable mask length mismatch");
+		}
+		if (maxSide < 1 || maxSide > MAX_SIDE) {
+			throw new IllegalArgumentException("maxSide out of range: " + maxSide);
 		}
 
 		int[] rankOf = rankColors(labels, paletteRgb.length, paintable);
@@ -95,7 +108,7 @@ public final class SquareTiler {
 					if (covered[i] || labels[i] != color || cellRank[i] < 0) {
 						continue;
 					}
-					int side = Math.min(dp[y * (gridW + 1) + x], MAX_SIDE);
+					int side = Math.min(dp[y * (gridW + 1) + x], maxSide);
 					for (int sy = y; sy < y + side; sy++) {
 						Arrays.fill(covered, sy * gridW + x, sy * gridW + x + side, true);
 					}

@@ -1,5 +1,7 @@
 package com.bobrust.robot.hsv;
 
+import com.bobrust.robot.error.PaintingInterrupted;
+
 /**
  * The color-entry subsystem's view of the game: paced picker clicks + the
  * swatch read-back (PLAN-PALETTIZED-MODE.md §2.5). The production
@@ -9,15 +11,15 @@ package com.bobrust.robot.hsv;
  */
 public interface PickerSensor {
 	/** Clicks the hue bar at {@code yPx} (the bar's center x is implied). */
-	void clickHue(int yPx) throws InterruptedException;
+	void clickHue(int yPx) throws PaintingInterrupted;
 
 	/** Clicks the SV square at ({@code xPx}, {@code yPx}). */
-	void clickSv(int xPx, int yPx) throws InterruptedException;
+	void clickSv(int xPx, int yPx) throws PaintingInterrupted;
 
 	/**
 	 * Reads the current swatch color: one capture of the calibrated swatch
 	 * rect, per-channel median (the swatch is a flat fill, §1). Returns an
 	 * opaque sRGB pixel.
 	 */
-	int readSwatch() throws InterruptedException;
+	int readSwatch() throws PaintingInterrupted;
 }

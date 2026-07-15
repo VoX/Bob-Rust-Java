@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.bobrust.robot.error.PaintingInterrupted;
 import com.bobrust.util.metrics.Ciede2000;
 
 /**
@@ -86,7 +87,7 @@ public class ColorEntryController {
 	}
 
 	/** Enters one target color; never throws on mis-verification — inspect the result. */
-	public Result enter(int targetRgb) throws InterruptedException {
+	public Result enter(int targetRgb) throws PaintingInterrupted {
 		targetRgb |= 0xff000000;
 		int[] clicks = clampToRects(model.clicksFor(targetRgb));
 		int predicted = model.predictedColor(clicks[0], clicks[1], clicks[2]);

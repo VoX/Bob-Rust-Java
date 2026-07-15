@@ -40,6 +40,19 @@ public record SquareBrushGeometry(double a, double b, double minSize) {
 		return sizeFor(1, pitch) >= minSize;
 	}
 
+	/**
+	 * The largest stamp side (in cells) whose SIZE stays within the game's
+	 * 1..32 slider range at this pitch: {@code floor((a·32 + b)/pitch)},
+	 * capped at {@link SquareTiler#MAX_SIDE}. With the default circle-derived
+	 * geometry at pitch 3.2 this is 31 — a side-32 stamp would need SIZE
+	 * 32.77, beyond the slider (open question 2; conservative until the
+	 * field's true max is measured).
+	 */
+	public int maxSideCells(double pitch) {
+		int side = (int) Math.floor((a * 32.0 + b) / pitch + 1e-9);
+		return Math.max(1, Math.min(SquareTiler.MAX_SIDE, side));
+	}
+
 	public String serialize() {
 		return String.format(Locale.ROOT, "a=%s;b=%s;minSize=%s", a, b, minSize);
 	}
