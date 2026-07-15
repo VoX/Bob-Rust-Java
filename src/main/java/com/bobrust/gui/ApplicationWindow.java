@@ -145,7 +145,7 @@ public class ApplicationWindow extends JDialog {
 
 	private void setupButtonRegions() {
 		loadButtonConfiguration();
-		
+
 		String[] steps = {
 			"Select the Save Button",
 			"Select the Brush Circle",
@@ -153,9 +153,13 @@ public class ApplicationWindow extends JDialog {
 			"Select the Size Bar End",
 			"Select the Opacity Bar Start",
 			"Select the Opacity Bar End",
-			"Select Color Preview"
+			"Select Color Preview",
+			// Palettized mode (PLAN-PALETTIZED-MODE.md §2.2)
+			"Select the Square Brush",
+			"Select the SIZE number field",
+			"Select the OPACITY number field"
 		};
-		
+
 		// Create initial button config
 		Coordinate[] coords = new Coordinate[steps.length];
 		coords[0] = config.saveImage;
@@ -165,6 +169,9 @@ public class ApplicationWindow extends JDialog {
 		coords[4] = config.opacity_0;
 		coords[5] = config.opacity_1;
 		coords[6] = config.colorPreview;
+		coords[7] = config.brush_square;
+		coords[8] = config.sizeField;
+		coords[9] = config.opacityField;
 
 		for (int i = 0; i < steps.length; i++) {
 			RegionSelectionDialog.Region region = regionSelectionDialog.openArrowMarker(
@@ -174,7 +181,7 @@ public class ApplicationWindow extends JDialog {
 
 			LOGGER.info("Region for '{}': [ x={}, y={} ]", steps[i], rect.x, rect.y);
 		}
-		
+
 		// Apply ButtonConfiguration
 		config.saveImage    = coords[0];
 		config.brush_circle = coords[1];
@@ -184,10 +191,62 @@ public class ApplicationWindow extends JDialog {
 		config.opacity_1    = coords[5];
 		config.colorPreview = coords[6];
 		config.focus        = coords[6];
+		config.brush_square = coords[7];
+		config.sizeField    = coords[8];
+		config.opacityField = coords[9];
 		selectPaletteRegion();
+		selectHsvPickerRegions();
 
 		saveButtonConfiguration();
 		loadButtonConfiguration();
+	}
+
+	/**
+	 * Palettized mode: the three HSV-picker rectangles (PLAN-PALETTIZED-MODE.md
+	 * §2.2). Corner accuracy of a few pixels is enough — the automatic probe
+	 * pass refines the mapping at the start of every paint. The COLOUR panel
+	 * must be toggled to the HSV picker (not the legacy palette grid).
+	 */
+	private void selectHsvPickerRegions() {
+		record RectStep(String text, Coordinate topLeft, Coordinate botRight) {
+		}
+		RectStep[] steps = {
+			new RectStep("Drag over the Saturation/Value square (HSV picker toggled on)",
+				config.hsvSquare_topLeft, config.hsvSquare_botRight),
+			new RectStep("Drag over the Hue bar",
+				config.hueBar_topLeft, config.hueBar_botRight),
+			new RectStep("Drag over the color preview swatch",
+				config.swatch_topLeft, config.swatch_botRight)
+		};
+		Coordinate[][] results = new Coordinate[steps.length][];
+
+		for (int i = 0; i < steps.length; i++) {
+			RectStep step = steps[i];
+			Rectangle rect = new Rectangle(
+				step.topLeft().x(),
+				step.topLeft().y(),
+				step.botRight().x() - step.topLeft().x(),
+				step.botRight().y() - step.topLeft().y()
+			);
+			var region = regionSelectionDialog.openDialog(
+				monitor, false, JResizeComponent.RenderType.DOTTED_4_16,
+				step.text() + " and press ESC", null, rect);
+			var selection = region.selection();
+			results[i] = new Coordinate[] {
+				Coordinate.from(selection.x, selection.y),
+				Coordinate.from(selection.x + selection.width, selection.y + selection.height)
+			};
+
+			LOGGER.info("Region for '{}': [ x={}, y={}, width={}, height={} ]",
+				step.text(), selection.x, selection.y, selection.width, selection.height);
+		}
+
+		config.hsvSquare_topLeft  = results[0][0];
+		config.hsvSquare_botRight = results[0][1];
+		config.hueBar_topLeft     = results[1][0];
+		config.hueBar_botRight    = results[1][1];
+		config.swatch_topLeft     = results[2][0];
+		config.swatch_botRight    = results[2][1];
 	}
 
 	private void selectPaletteRegion() {

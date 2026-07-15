@@ -5,7 +5,9 @@ import java.awt.*;
 import com.bobrust.generator.BlobPruner;
 import com.bobrust.generator.GeneratorConfig;
 import com.bobrust.lang.RustUI;
+import com.bobrust.settings.data.DrawingMode;
 import com.bobrust.settings.data.PaintPreset;
+import com.bobrust.settings.data.PalettizedDetail;
 import com.bobrust.settings.data.ScalingType;
 import com.bobrust.util.PaintTimeEstimator;
 import com.bobrust.settings.type.*;
@@ -137,6 +139,45 @@ public interface Settings {
 	 * Hidden.
 	 */
 	StringType SettingsCaptureMs = new StringType(null);
+
+	/**
+	 * Palettized mode (PLAN-PALETTIZED-MODE.md). Which pipeline the draw
+	 * dialog runs; selected per draw via the DrawDialog mode toggle, not the
+	 * settings GUI.
+	 */
+	EnumType<DrawingMode> SettingsDrawingMode = new EnumType<>(DrawingMode.Brush);
+
+	/** Palettized: the number of exact palette colors N. */
+	IntType SettingsPalettizedColors = new IntType(32, 2, 64);
+
+	/** Palettized: detail level (virtual-grid pitch in texels). */
+	EnumType<PalettizedDetail> SettingsPalettizedDetail = new EnumType<>(PalettizedDetail.Fine);
+
+	/** Palettized: Floyd–Steinberg dither (≈2× stamps on smooth images). */
+	BoolType SettingsPalettizedDither = new BoolType(false);
+
+	/** Palettized: click the clear-canvas button before painting. */
+	BoolType SettingsPalettizedClearFirst = new BoolType(true);
+
+	/** Palettized: skip cells whose color matches the sign material (advanced). */
+	BoolType SettingsPalettizedSkipBase = new BoolType(false);
+
+	/**
+	 * Serialized square-brush geometry ({@code a=3.125;b=0;minSize=1.0}, see
+	 * {@link com.bobrust.generator.tiler.SquareBrushGeometry#parse}): the
+	 * measured footprint side in texels is {@code a·SIZE + b}. Defaults derive
+	 * from the circle-brush measurements until the square-brush calibration
+	 * pattern is run. Hidden.
+	 */
+	StringType SettingsSquareBrush = new StringType(null);
+
+	/**
+	 * Serialized HSV-picker mapping fitted by the probe pass
+	 * ({@code x0=…;wx=…;y0=…;wy=…;h0=…;wh=…}, see
+	 * {@link com.bobrust.robot.hsv.HsvPickerModel#parse}). Persisted after
+	 * every probe run and used as the next run's prior. Hidden.
+	 */
+	StringType SettingsHsvPicker = new StringType(null);
 
 	// Used for internal save state
 	InternalSettings InternalSettings = new InternalSettings();

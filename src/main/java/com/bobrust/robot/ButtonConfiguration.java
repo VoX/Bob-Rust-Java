@@ -43,7 +43,19 @@ public class ButtonConfiguration {
 	 */
 	public Coordinate focus              = DEFAULT;
 	public Coordinate colorPreview       = DEFAULT;
-	
+
+	// HSV color picker (palettized mode)
+	public Coordinate hsvSquare_topLeft  = DEFAULT;  // SV square rect
+	public Coordinate hsvSquare_botRight = DEFAULT;
+	public Coordinate hueBar_topLeft     = DEFAULT;  // hue bar rect
+	public Coordinate hueBar_botRight    = DEFAULT;
+	public Coordinate swatch_topLeft     = DEFAULT;  // color-preview swatch rect
+	public Coordinate swatch_botRight    = DEFAULT;
+
+	// Numeric input fields (palettized mode)
+	public Coordinate sizeField          = DEFAULT;  // click-to-focus point of the SIZE readout
+	public Coordinate opacityField       = DEFAULT;  // click-to-focus point of the OPACITY readout
+
 	/**
 	 * Update this configuration with values
 	 */
@@ -65,6 +77,27 @@ public class ButtonConfiguration {
 		this.color_botRight     = Objects.requireNonNullElse(config.color_botRight,  DEFAULT);
 		this.focus              = Objects.requireNonNullElse(config.focus,           DEFAULT);
 		this.colorPreview       = Objects.requireNonNullElse(config.colorPreview,    DEFAULT);
+		this.hsvSquare_topLeft  = Objects.requireNonNullElse(config.hsvSquare_topLeft,  DEFAULT);
+		this.hsvSquare_botRight = Objects.requireNonNullElse(config.hsvSquare_botRight, DEFAULT);
+		this.hueBar_topLeft     = Objects.requireNonNullElse(config.hueBar_topLeft,     DEFAULT);
+		this.hueBar_botRight    = Objects.requireNonNullElse(config.hueBar_botRight,    DEFAULT);
+		this.swatch_topLeft     = Objects.requireNonNullElse(config.swatch_topLeft,     DEFAULT);
+		this.swatch_botRight    = Objects.requireNonNullElse(config.swatch_botRight,    DEFAULT);
+		this.sizeField          = Objects.requireNonNullElse(config.sizeField,          DEFAULT);
+		this.opacityField       = Objects.requireNonNullElse(config.opacityField,       DEFAULT);
+	}
+
+	/**
+	 * True when every coordinate the palettized mode depends on has been
+	 * calibrated. The draw button refuses to start palettized painting while
+	 * this is false, pointing the user at the Setup Buttons flow.
+	 */
+	public boolean isPalettizedCalibrated() {
+		return brush_square.valid()
+			&& hsvSquare_topLeft.valid() && hsvSquare_botRight.valid()
+			&& hueBar_topLeft.valid() && hueBar_botRight.valid()
+			&& swatch_topLeft.valid() && swatch_botRight.valid()
+			&& sizeField.valid() && opacityField.valid();
 	}
 	
 	/**
