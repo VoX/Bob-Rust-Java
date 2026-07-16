@@ -166,11 +166,11 @@ public interface Settings {
 	BoolType SettingsPalettizedSkipBase = new BoolType(false);
 
 	/**
-	 * Serialized square-brush geometry ({@code a=3.125;b=0;minSize=1.0}, see
+	 * Serialized square-brush geometry ({@code a=1.0;b=0.0;minSize=1.0}, see
 	 * {@link com.bobrust.generator.tiler.SquareBrushGeometry#parse}): the
-	 * measured footprint side in texels is {@code a·SIZE + b}. Defaults derive
-	 * from the circle-brush measurements until the square-brush calibration
-	 * pattern is run. Hidden.
+	 * measured footprint side in texels is {@code a·SIZE + b}. Default a=1.0 is
+	 * the owner's in-game measurement (SIZE 1 ≈ 1 texel); the square-brush
+	 * calibration pattern refines it when run. Hidden.
 	 */
 	StringType SettingsSquareBrush = new StringType(null);
 

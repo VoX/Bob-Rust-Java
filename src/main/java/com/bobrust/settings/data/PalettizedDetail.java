@@ -1,10 +1,9 @@
 package com.bobrust.settings.data;
 
 /**
- * Palettized-mode detail level: the virtual-grid pitch in sign texels
- * (PLAN-PALETTIZED-MODE.md §3.2). Both pitches divide every built-in sign
- * dimension (multiples of 128) exactly, so stamps land on exact texel
- * boundaries.
+ * Palettized-mode detail level: the virtual-grid pitch in sign texels. All
+ * three pitches (1/2/4) divide every built-in sign dimension (multiples of
+ * 128) exactly, so stamps land on exact texel boundaries.
  */
 public enum PalettizedDetail {
 	/** Pitch 1 texel — 512×512 cells on an XL frame: native resolution, the sharpest,

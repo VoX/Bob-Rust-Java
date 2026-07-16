@@ -22,9 +22,10 @@ import com.bobrust.generator.tiler.PalettizedPaintPlan.Stamp;
 public final class PalettizedTimeEstimator {
 	/** Focus ×4 + clear + brush ×4 + opacity field entry ≈ the sim's 67−54. */
 	static final int SETUP_ACTIONS = 13;
-	/** The §2.3 probe pass: ~27 probes with pacing. */
-	static final int PROBE_ACTIONS = 54;
-	static final int PROBE_CAPTURES = 27;
+	/** The probe pass: hue is now a single pixel-scan capture (not a click-loop), so only the
+	 *  V + S axes click-and-read (~9 each) + set-hue + reference ≈ 36 actions / 19 captures. */
+	static final int PROBE_ACTIONS = 36;
+	static final int PROBE_CAPTURES = 19;
 	/** Hue + SV click per color entry. */
 	static final double COLOR_CLICKS = 2;
 	/** Measured nudge clicks per color (Part E). */

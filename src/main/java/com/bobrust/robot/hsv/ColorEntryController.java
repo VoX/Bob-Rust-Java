@@ -15,7 +15,8 @@ import com.bobrust.util.metrics.Ciede2000;
  * error (≤ ±3 px per axis) until the read-back is byte-equal to the model's
  * prediction or within tolerance of the target, then adopt what was actually
  * read. Bounded and non-spraying: at most {@code maxReads} swatch reads and
- * {@code 2·maxReads} picker clicks per color, every click inside the
+ * {@code 2·maxReads + 2} picker clicks per color (the +2 is the loose-path
+ * re-issue of the best position), every click inside the
  * calibrated rects. Pure logic over an injected {@link PickerSensor} — no
  * Robot, fully unit-testable.
  */

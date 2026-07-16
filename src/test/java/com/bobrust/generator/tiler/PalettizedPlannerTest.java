@@ -136,8 +136,8 @@ public class PalettizedPlannerTest {
 		assertEquals(4, PalettizedTimeEstimator.verifiedStamps(plan, 1));
 
 		PalettizedTimeEstimator.Estimate estimate = PalettizedTimeEstimator.estimate(plan, 30, 12.0, 2, 1000);
-		double actions = 4 + 6 * 1 + (2 + 2.2) * 1 + 54 + 13 + 0 + 4;
-		long captures = Math.round(3.2 * 1) + 1 + 2 * 2 + 27;
+		double actions = 4 + 6 * 1 + (2 + 2.2) * 1 + 36 + 13 + 0 + 4;   // 36 = PROBE_ACTIONS (pixel-scan hue)
+		long captures = Math.round(3.2 * 1) + 1 + 2 * 2 + 19;   // 19 = PROBE_CAPTURES
 		long expected = Math.round(actions * (1000.0 / 30) + captures * 12.0);
 		assertEquals(expected, estimate.millis());
 		assertEquals(4, estimate.stamps());

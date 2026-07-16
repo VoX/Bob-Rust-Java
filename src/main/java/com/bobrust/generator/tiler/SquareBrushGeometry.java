@@ -5,11 +5,11 @@ import java.util.Locale;
 /**
  * The square brush's measured footprint model (PLAN-PALETTIZED-MODE.md §3.2):
  * the painted side in sign texels at in-game SIZE {@code s} is
- * {@code a·s + b}. Defaults derive from the repo's measured circle-brush data
- * (diameter ≈ 3.125·s, {@link com.bobrust.generator.CircleCache}); the
- * square-brush calibration pattern overwrites them when run.
+ * {@code a·s + b}. Default a=1.0 is the owner's in-game square-brush
+ * measurement (SIZE 1 ≈ 1 texel — the square is far finer than the circle
+ * brush's 3.125·s diameter); the square-brush calibration pattern refines it.
  *
- * <p>Serialized as {@code a=3.125;b=0.0;minSize=1.0} in
+ * <p>Serialized as {@code a=1.0;b=0.0;minSize=1.0} in
  * {@code Settings.SettingsSquareBrush}.
  */
 public record SquareBrushGeometry(double a, double b, double minSize) {
@@ -48,10 +48,9 @@ public record SquareBrushGeometry(double a, double b, double minSize) {
 	/**
 	 * The largest stamp side (in cells) whose SIZE stays within the game's
 	 * 1..32 slider range at this pitch: {@code floor((a·32 + b)/pitch)},
-	 * capped at {@link SquareTiler#MAX_SIDE}. With the default circle-derived
-	 * geometry at pitch 3.2 this is 31 — a side-32 stamp would need SIZE
-	 * 32.77, beyond the slider (open question 2; conservative until the
-	 * field's true max is measured).
+	 * capped at {@link SquareTiler#MAX_SIDE}. With the default a=1.0 this is
+	 * 32/16/8 at pitch 1/2/4 — a side-max stamp lands SIZE exactly at the
+	 * slider max 32, never above.
 	 */
 	public int maxSideCells(double pitch) {
 		int side = (int) Math.floor((a * 32.0 + b) / pitch + 1e-9);
