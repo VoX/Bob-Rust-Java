@@ -99,6 +99,29 @@ public class HsvClosedLoopTest {
 			return rgb;
 		}
 
+		@Override
+		public java.awt.image.BufferedImage captureHueBar() {
+			// Synthesize the bar the probe will scan: row y ↔ screen-y (allowedHue.y + y), colored
+			// by this picker's own hue mapping so the scan-derived model matches what clicking does.
+			Rectangle r = allowedHue != null ? allowedHue : new Rectangle((int) yh0, (int) yh0, 15, (int) hh);
+			int w = Math.max(1, r.width), h = Math.max(1, r.height);
+			var img = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB);
+			for (int y = 0; y < h; y++) {
+				double hue = 1.0 - clamp01((r.y + y - yh0 + 0.5) / hh);
+				int rgb = HsvColor.hsvToRgb(hue, 1.0, 1.0);
+				if (channelGain != 1.0) {
+					int rr = Math.min(255, (int) Math.round(((rgb >>> 16) & 0xff) * channelGain));
+					int gg = Math.min(255, (int) Math.round(((rgb >>> 8) & 0xff) * channelGain));
+					int bb = Math.min(255, (int) Math.round((rgb & 0xff) * channelGain));
+					rgb = (rr << 16) | (gg << 8) | bb;
+				}
+				for (int x = 0; x < w; x++) {
+					img.setRGB(x, y, rgb);
+				}
+			}
+			return img;
+		}
+
 		private static double clamp01(double t) {
 			return t < 0 ? 0 : Math.min(t, 1);
 		}
@@ -155,6 +178,8 @@ public class HsvClosedLoopTest {
 	@Test
 	public void probeFitRecoversGeometryWithinOnePixel() throws Exception {
 		SimulatedPicker picker = SimulatedPicker.standard();
+		picker.allowedSv = markedSvRect();
+		picker.allowedHue = markedHueRect();
 		ProbeResult result = ProbePlanner.probe(picker, markedSvRect(), markedHueRect(),
 			ProbePlanner.DEFAULT_PROBES_PER_AXIS);
 

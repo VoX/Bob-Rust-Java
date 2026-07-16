@@ -246,6 +246,11 @@ public class PalettizedPainterTest {
 			if (swatchRect.contains(x, y)) {
 				return stuckSwatch ? 0xff885522 : pickerRgb();
 			}
+			if (hueRect.contains(x, y)) {
+				// Render the hue bar the probe now scans, consistent with clickHue's mapping.
+				double h = 1.0 - (y - hueRect.y + 0.5) / (double) hueRect.height;
+				return HsvColor.hsvToRgb(clamp01(h), 1.0, 1.0);
+			}
 			if (sliderPixel(x, y, buttons.size_1, buttons.size_32)) {
 				return fillPixel(x, buttons.size_1.x(), buttons.size_32.x(), (sizeValue - 1) / 31.0);
 			}

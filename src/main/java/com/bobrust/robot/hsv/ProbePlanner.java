@@ -1,6 +1,7 @@
 package com.bobrust.robot.hsv;
 
 import java.awt.Rectangle;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,6 +38,12 @@ public final class ProbePlanner {
 	private static final double TRIM_RESIDUAL_PX = 1.0;
 	/** At most this many saturated-endpoint outliers are dropped per axis. */
 	private static final int MAX_TRIM_DROPS = 2;
+	/** Hue-bar scan: skip pixels below this saturation (black/grey UI, arrow markers). */
+	private static final double HUE_SCAN_MIN_SAT = 0.25;
+	/** Hue-bar scan: skip pixels below this value/brightness (black UI, dark edges). */
+	private static final double HUE_SCAN_MIN_VAL = 0.20;
+	/** Hue-bar scan: need at least this many colored rows to trust the bar. */
+	private static final int HUE_SCAN_MIN_ROWS = 8;
 
 	/**
 	 * Probe outcome: the fitted model (null on failure), the worst per-axis
@@ -56,10 +63,20 @@ public final class ProbePlanner {
 			throws PaintingInterrupted {
 		int n = Math.max(3, probesPerAxis);
 		int svRight = svRect.x + svRect.width - 2;
-		int hueMid = hueRect.y + hueRect.height / 2;
 
-		// A well-conditioned starting state: some hue, SV near a corner.
-		sensor.clickHue(hueMid);
+		// HUE (robust, owner's suggestion): scan the bar's pixels directly — it's a 1-D rainbow, so
+		// reading its center column maps row -> hue with no dependency on clicks landing right, no
+		// swatch coupling, and no circular-hue undercount. Skips the black/low-sat UI at the ends.
+		HueScanResult hueScan = scanHueBar(sensor.captureHueBar(), hueRect);
+		if (hueScan.fit() == null) {
+			return new ProbeResult(null, Double.MAX_VALUE, hueScan.failure());
+		}
+		HsvPickerModel.AxisFit hFit = hueScan.fit();
+
+		// Pin a known BRIGHT hue (~cyan) via the scanned model so the hue-dependent SV square is
+		// readable for the value/saturation probes below (hue is set FIRST — matches real painting).
+		int knownHueY = clamp(hFit.axis().pxFor(1.0 - 0.5), hueRect.y, hueRect.y + hueRect.height - 1);
+		sensor.clickHue(knownHueY);
 		sensor.clickSv(svRight, svRect.y + 1);
 
 		// V axis along the right edge — V is observable at any saturation and
@@ -94,43 +111,6 @@ public final class ProbePlanner {
 			return degenerate();
 		}
 
-		// Hue axis with S/V pinned at the fitted bright-saturated corner
-		int maxSCol = clamp(sFit.axis().pxFor(1.0), svRect.x, svRect.x + svRect.width - 1);
-		sensor.clickSv(maxSCol, maxVRow);
-		double[] hTs = new double[n];
-		int[] hPxs = new int[n];
-		double[] hueReadings = new double[n];
-		for (int i = 0; i < n; i++) {
-			int py = probePosition(hueRect.y, hueRect.height, i, n);
-			sensor.clickHue(py);
-			double[] hsv = HsvColor.rgbToHsv(sensor.readSwatch());
-			hPxs[i] = py;
-			hTs[i] = 1.0 - hsv[0];
-			hueReadings[i] = hsv[0];
-		}
-
-		// Hue is CIRCULAR: red is both 0 and 360 deg, so a real full hue bar (which sweeps
-		// 360->0 top to bottom) has a pure-red band at BOTH ends that each read back as hue 0.
-		// A naive max-min then undercounts the coverage by up to ~90 deg and falsely rejects a
-		// perfectly valid bar (observed: a full bar reads only ~270 deg by max-min). Measure the
-		// total hue TRAVERSED along the (monotonic) bar instead: the wrap-aware sum of steps
-		// between consecutive readbacks — ~360 deg for a real bar, ~0 for a flat/mismarked region.
-		double hueSpan = 0.0;
-		for (int i = 1; i < n; i++) {
-			double d = Math.abs(hueReadings[i] - hueReadings[i - 1]);
-			hueSpan += Math.min(d, 1.0 - d);
-		}
-		if (hueSpan < MIN_HUE_SPAN) {
-			return new ProbeResult(null, Double.MAX_VALUE,
-				("hue readbacks span only %.0f deg - make sure the marked rect covers the WHOLE hue bar "
-					+ "top-to-bottom, and the COLOUR panel is toggled to the HSV picker").formatted(hueSpan * 360));
-		}
-
-		HsvPickerModel.AxisFit hFit = fitTrimmed(hTs, hPxs);
-		if (hFit == null) {
-			return degenerate();
-		}
-
 		double maxResidual = Math.max(sFit.maxResidualPx(), Math.max(vFit.maxResidualPx(), hFit.maxResidualPx()));
 		if (maxResidual > MAX_RESIDUAL_PX) {
 			return new ProbeResult(null, maxResidual,
@@ -158,6 +138,92 @@ public final class ProbePlanner {
 		}
 
 		return new ProbeResult(model, maxResidual, null);
+	}
+
+	/** A hue-bar pixel scan outcome: the fitted screen-y -> (1-hue) axis, or null + a reason. */
+	record HueScanResult(HsvPickerModel.AxisFit fit, String failure) {
+	}
+
+	/**
+	 * Scans the center column of the captured hue-bar rect, skips the black/low-sat UI rows (the
+	 * arrow markers + edges), and fits screen-y -> (1-hue) from the rainbow it finds. Gates on
+	 * wrap-aware hue coverage (~360 deg for a real bar) rather than a naive max-min. Pure and
+	 * unit-testable — the whole hue calibration with no clicking or swatch coupling.
+	 */
+	static HueScanResult scanHueBar(BufferedImage bar, Rectangle hueRect) {
+		if (bar == null || bar.getWidth() <= 0 || bar.getHeight() <= 0) {
+			return new HueScanResult(null, "could not capture the hue bar - re-mark it in Setup and toggle "
+				+ "the COLOUR panel to the HSV picker");
+		}
+		int cx = bar.getWidth() / 2;
+		List<double[]> rows = new ArrayList<>();   // (screenY, 1-hue)
+		List<Double> hues = new ArrayList<>();
+		for (int y = 0; y < bar.getHeight(); y++) {
+			double[] hsv = HsvColor.rgbToHsv(bar.getRGB(cx, y) | 0xff000000);
+			if (hsv[1] < HUE_SCAN_MIN_SAT || hsv[2] < HUE_SCAN_MIN_VAL) {
+				continue;   // black/grey UI (arrow markers, edges) — skip (owner's insight)
+			}
+			rows.add(new double[] { hueRect.y + y, 1.0 - hsv[0] });
+			hues.add(hsv[0]);
+		}
+		if (rows.size() < HUE_SCAN_MIN_ROWS) {
+			return new HueScanResult(null, ("hue-bar scan found only %d colored rows - the marked rect is not on "
+				+ "the hue bar, or the COLOUR panel is not on the HSV picker").formatted(rows.size()));
+		}
+		// Wrap-aware coverage: total hue traversed down the bar (~360 deg real, ~0 flat/mismarked).
+		double coverage = 0.0;
+		for (int i = 1; i < hues.size(); i++) {
+			double d = Math.abs(hues.get(i) - hues.get(i - 1));
+			coverage += Math.min(d, 1.0 - d);
+		}
+		if (coverage < MIN_HUE_SPAN) {
+			return new HueScanResult(null, ("hue bar covers only %.0f deg - make sure the marked rect spans the "
+				+ "WHOLE hue bar top-to-bottom, and the COLOUR panel is on the HSV picker").formatted(coverage * 360));
+		}
+		double[] ts = new double[rows.size()];
+		int[] pxs = new int[rows.size()];
+		for (int i = 0; i < rows.size(); i++) {
+			pxs[i] = (int) rows.get(i)[0];
+			ts[i] = rows.get(i)[1];
+		}
+		HsvPickerModel.AxisFit fit = fitScan(ts, pxs);
+		if (fit == null) {
+			return new HueScanResult(null, "hue-bar scan could not fit a linear row->hue mapping");
+		}
+		return new HueScanResult(fit, null);
+	}
+
+	/**
+	 * Robust linear fit for the dense hue scan (hundreds of rows): least-squares, then iteratively
+	 * drop the worst-residual rows until the fit is tight or ~20% are gone. Real hue bars can have
+	 * a flat pure-red band at each end (hue 0 = 360) and a marked rect can overhang the bar; those
+	 * rows clamp to a constant hue and would skew a plain fit — this trims them out.
+	 */
+	private static HsvPickerModel.AxisFit fitScan(double[] ts, int[] pxs) {
+		List<Integer> alive = new ArrayList<>();
+		for (int i = 0; i < ts.length; i++) {
+			alive.add(i);
+		}
+		HsvPickerModel.AxisFit fit = fitSubset(ts, pxs, alive);
+		int maxDrops = ts.length / 5;
+		for (int d = 0; d < maxDrops; d++) {
+			if (fit == null || fit.maxResidualPx() <= 0.7 || alive.size() <= 8) {
+				break;
+			}
+			int worst = -1;
+			double worstResidual = -1;
+			for (int index : alive) {
+				double predicted = fit.axis().offset() + fit.axis().scale() * ts[index];
+				double residual = Math.abs(predicted - (pxs[index] + 0.5));
+				if (residual > worstResidual) {
+					worstResidual = residual;
+					worst = index;
+				}
+			}
+			alive.remove(Integer.valueOf(worst));
+			fit = fitSubset(ts, pxs, alive);
+		}
+		return fit;
 	}
 
 	private static ProbeResult degenerate() {

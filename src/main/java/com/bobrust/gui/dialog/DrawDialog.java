@@ -420,8 +420,9 @@ public class DrawDialog extends JDialog {
 		JComboBox<PalettizedDetail> detailCombo = new JComboBox<>(PalettizedDetail.values());
 		detailCombo.setSelectedItem(Settings.SettingsPalettizedDetail.get());
 		detailCombo.setMaximumSize(new Dimension(120, 22));
-		detailCombo.setToolTipText("Fine: pitch 3.2 texels (160x160 on XL). Economy: pitch 4.0 — "
-			+ "20-35% fewer actions, visibly blockier.");
+		detailCombo.setToolTipText("Max: 1 texel/cell (512x512 on XL) — sharpest, most stamps. "
+			+ "Fine: 2 texels (256x256), ~4x fewer stamps. Fast: 4 texels (128x128), blockier + fastest. "
+			+ "Watch the time estimate — sharper = many more clicks.");
 		detailCombo.addActionListener(event -> {
 			Settings.SettingsPalettizedDetail.set((PalettizedDetail) detailCombo.getSelectedItem());
 			scheduleEstimate();

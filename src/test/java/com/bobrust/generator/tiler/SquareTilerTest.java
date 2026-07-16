@@ -231,13 +231,15 @@ public class SquareTilerTest {
 		assertEquals(SquareBrushGeometry.DEFAULT, SquareBrushGeometry.parse("garbage"));
 		assertEquals(SquareBrushGeometry.DEFAULT, SquareBrushGeometry.parse("a=0;b=1"), "non-positive slope is invalid");
 
-		// Default geometry at pitch 3.2: side k -> SIZE = k * 1.024
+		// Default (square-brush) geometry a=1.0: side k at pitch p -> SIZE = k * p
 		SquareBrushGeometry defaults = SquareBrushGeometry.DEFAULT;
-		assertEquals(1.024, defaults.sizeFor(1, 3.2), 1e-9);
-		assertEquals(32.768, defaults.sizeFor(32, 3.2), 1e-9);
-		assertEquals("1.02", SquareBrushGeometry.formatSize(defaults.sizeFor(1, 3.2)));
-		assertTrue(defaults.supportsPitch(3.2));
-		assertFalse(defaults.supportsPitch(2.0), "pitch 2.0 needs SIZE 0.64 < minSize 1.0");
+		assertEquals(1.0, defaults.sizeFor(1, 1.0), 1e-9);
+		assertEquals(2.0, defaults.sizeFor(1, 2.0), 1e-9);
+		assertEquals(32.0, defaults.sizeFor(32, 1.0), 1e-9);
+		assertEquals("1.00", SquareBrushGeometry.formatSize(defaults.sizeFor(1, 1.0)));
+		assertTrue(defaults.supportsPitch(1.0));
+		assertTrue(defaults.supportsPitch(2.0));
+		assertFalse(defaults.supportsPitch(0.5), "pitch 0.5 needs SIZE 0.5 < minSize 1.0");
 	}
 
 	// -------------------------------------------------------------- helpers

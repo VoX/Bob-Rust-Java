@@ -1,5 +1,7 @@
 package com.bobrust.robot.hsv;
 
+import java.awt.image.BufferedImage;
+
 import com.bobrust.robot.error.PaintingInterrupted;
 
 /**
@@ -22,4 +24,13 @@ public interface PickerSensor {
 	 * opaque sRGB pixel.
 	 */
 	int readSwatch() throws PaintingInterrupted;
+
+	/**
+	 * Captures the calibrated hue-bar rect for direct pixel scanning. The hue
+	 * bar is a 1-D rainbow, so reading its pixels maps row → hue far more
+	 * robustly than clicking down it and reading the swatch (no dependency on
+	 * clicks landing right, no swatch coupling, and no circular-hue undercount).
+	 * Returns {@code null} if the capture failed.
+	 */
+	BufferedImage captureHueBar() throws PaintingInterrupted;
 }

@@ -7,11 +7,15 @@ package com.bobrust.settings.data;
  * boundaries.
  */
 public enum PalettizedDetail {
-	/** Pitch 3.2 texels — 160×160 cells on an XL frame. */
-	Fine(3.2),
+	/** Pitch 1 texel — 512×512 cells on an XL frame: native resolution, the sharpest,
+	 * but the most stamps (big/detailed images can be very long paints). */
+	Max(1.0),
 
-	/** Pitch 4.0 texels — 128×128 cells on XL; ~20–35% fewer actions, blockier. */
-	Economy(4.0);
+	/** Pitch 2 texels — 256×256 cells on XL: sharp, ~4× fewer stamps than Max. */
+	Fine(2.0),
+
+	/** Pitch 4 texels — 128×128 cells on XL: blockier, fastest (~16× fewer stamps than Max). */
+	Fast(4.0);
 
 	private final double pitch;
 

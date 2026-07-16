@@ -13,7 +13,12 @@ import java.util.Locale;
  * {@code Settings.SettingsSquareBrush}.
  */
 public record SquareBrushGeometry(double a, double b, double minSize) {
-	public static final SquareBrushGeometry DEFAULT = new SquareBrushGeometry(3.125, 0.0, 1.0);
+	// The SQUARE brush's measured footprint (owner in-game test 2026-07-16): SIZE 1 ≈ 1 sign
+	// texel, i.e. side ≈ 1.0·SIZE. This is very different from the circle brush's 3.125·s
+	// diameter the design originally borrowed — the square is far finer, so an XL sign can be
+	// painted near its native 512×512 instead of 160×160. The square-brush calibration pattern
+	// refines a/b precisely; 1.0/0.0 is the field-measured default.
+	public static final SquareBrushGeometry DEFAULT = new SquareBrushGeometry(1.0, 0.0, 1.0);
 
 	/**
 	 * The SIZE-field value whose footprint is {@code sideCells} cells of

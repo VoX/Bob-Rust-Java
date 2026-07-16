@@ -298,6 +298,11 @@ public class PalettizedPainter {
 			}
 			return medianRgb(image);
 		}
+
+		@Override
+		public java.awt.image.BufferedImage captureHueBar() throws PaintingInterrupted {
+			return paced.captureRegion(hueRect);
+		}
 	}
 
 	/** Per-channel median of a capture — exact on the flat swatch fill (§2.5). */
