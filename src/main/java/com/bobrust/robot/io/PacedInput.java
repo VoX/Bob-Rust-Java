@@ -132,6 +132,11 @@ public class PacedInput {
 		}
 	}
 
+	/** Wait roughly {@code ms} from now — lets the game repaint before a read (interrupt-aware). */
+	public void settle(double ms) throws PaintingInterrupted {
+		addTimeDelay(io.currentTimeMs() + ms);
+	}
+
 	/**
 	 * Captures a screen region, or null when the capture fails (the legacy
 	 * warn-and-degrade contract).

@@ -338,6 +338,24 @@ public class PalettizedPainter {
 
 		@Override
 		public int readSwatch() throws PaintingInterrupted {
+			// Rust repaints the swatch a frame or two AFTER the SV/hue click; capturing immediately
+			// reads the PREVIOUS color (a ~1-click lag that scrambles the value/sat probes — confirmed
+			// from a live debug dump). Settle, then poll until two consecutive captures agree, so the
+			// read reflects the CURRENT pick.
+			paced.settle(SWATCH_SETTLE_MS);
+			int prev = captureSwatchMedian();
+			for (int i = 0; i < SWATCH_STABLE_TRIES; i++) {
+				paced.settle(SWATCH_POLL_MS);
+				int cur = captureSwatchMedian();
+				if (colorsClose(prev, cur, SWATCH_STABLE_TOL)) {
+					return cur;
+				}
+				prev = cur;
+			}
+			return prev;
+		}
+
+		private int captureSwatchMedian() throws PaintingInterrupted {
 			BufferedImage image = paced.captureRegion(swatchReadRect);
 			if (image == null) {
 				LOGGER.error("Could not capture the swatch rect {} — aborting color entry", swatchReadRect);
@@ -350,6 +368,19 @@ public class PalettizedPainter {
 		public java.awt.image.BufferedImage captureHueBar() throws PaintingInterrupted {
 			return paced.captureRegion(hueRect);
 		}
+	}
+
+	// Swatch-read settle: the game repaints the swatch a frame or two after a picker click, so read
+	// after a settle + poll until it stops changing (else V/S reads lag the click by one).
+	private static final double SWATCH_SETTLE_MS = 80.0;
+	private static final double SWATCH_POLL_MS = 40.0;
+	private static final int SWATCH_STABLE_TRIES = 6;
+	private static final int SWATCH_STABLE_TOL = 6;   // per-channel 0..255
+
+	private static boolean colorsClose(int a, int b, int tol) {
+		return Math.abs(((a >> 16) & 0xff) - ((b >> 16) & 0xff)) <= tol
+			&& Math.abs(((a >> 8) & 0xff) - ((b >> 8) & 0xff)) <= tol
+			&& Math.abs((a & 0xff) - (b & 0xff)) <= tol;
 	}
 
 	/** Per-channel median of a capture — exact on the flat swatch fill (§2.5). */
