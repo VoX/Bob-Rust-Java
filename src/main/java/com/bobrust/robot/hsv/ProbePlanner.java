@@ -113,9 +113,15 @@ public final class ProbePlanner {
 
 		double maxResidual = Math.max(sFit.maxResidualPx(), Math.max(vFit.maxResidualPx(), hFit.maxResidualPx()));
 		if (maxResidual > MAX_RESIDUAL_PX) {
+			// Name the worst axis so a re-mark targets the right region. hue = the bar (pixel-scanned);
+			// saturation/value = the SV square (clicked + read from the swatch).
+			String worst = hFit.maxResidualPx() >= vFit.maxResidualPx() && hFit.maxResidualPx() >= sFit.maxResidualPx()
+				? "HUE bar" : vFit.maxResidualPx() >= sFit.maxResidualPx() ? "VALUE (SV square Y)" : "SATURATION (SV square X)";
 			return new ProbeResult(null, maxResidual,
-				("probe fit residual %.1f px exceeds %.1f px - re-mark the picker rects in Setup, and toggle "
-					+ "the COLOUR panel to the HSV picker").formatted(maxResidual, MAX_RESIDUAL_PX));
+				("probe fit residual %.1f px exceeds %.1f px - worst axis: %s [S=%.1f V=%.1f hue=%.1f]. Re-mark that "
+					+ "region in Setup (drag TIGHTLY over just the control), and toggle the COLOUR panel to the HSV picker")
+					.formatted(maxResidual, MAX_RESIDUAL_PX, worst,
+						sFit.maxResidualPx(), vFit.maxResidualPx(), hFit.maxResidualPx()));
 		}
 
 		HsvPickerModel model = new HsvPickerModel(sFit.axis(), vFit.axis(), hFit.axis());
