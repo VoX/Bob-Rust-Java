@@ -99,21 +99,31 @@ public final class ProbePlanner {
 		sensor.clickSv(maxSCol, maxVRow);
 		double[] hTs = new double[n];
 		int[] hPxs = new int[n];
-		double hueMin = Double.MAX_VALUE, hueMax = -Double.MAX_VALUE;
+		double[] hueReadings = new double[n];
 		for (int i = 0; i < n; i++) {
 			int py = probePosition(hueRect.y, hueRect.height, i, n);
 			sensor.clickHue(py);
 			double[] hsv = HsvColor.rgbToHsv(sensor.readSwatch());
 			hPxs[i] = py;
 			hTs[i] = 1.0 - hsv[0];
-			hueMin = Math.min(hueMin, hsv[0]);
-			hueMax = Math.max(hueMax, hsv[0]);
+			hueReadings[i] = hsv[0];
 		}
 
-		if (hueMax - hueMin < MIN_HUE_SPAN) {
+		// Hue is CIRCULAR: red is both 0 and 360 deg, so a real full hue bar (which sweeps
+		// 360->0 top to bottom) has a pure-red band at BOTH ends that each read back as hue 0.
+		// A naive max-min then undercounts the coverage by up to ~90 deg and falsely rejects a
+		// perfectly valid bar (observed: a full bar reads only ~270 deg by max-min). Measure the
+		// total hue TRAVERSED along the (monotonic) bar instead: the wrap-aware sum of steps
+		// between consecutive readbacks — ~360 deg for a real bar, ~0 for a flat/mismarked region.
+		double hueSpan = 0.0;
+		for (int i = 1; i < n; i++) {
+			double d = Math.abs(hueReadings[i] - hueReadings[i - 1]);
+			hueSpan += Math.min(d, 1.0 - d);
+		}
+		if (hueSpan < MIN_HUE_SPAN) {
 			return new ProbeResult(null, Double.MAX_VALUE,
-				("hue readbacks span only %.0f deg - the marked rect is not a hue bar, or the COLOUR panel "
-					+ "is not toggled to the HSV picker").formatted((hueMax - hueMin) * 360));
+				("hue readbacks span only %.0f deg - make sure the marked rect covers the WHOLE hue bar "
+					+ "top-to-bottom, and the COLOUR panel is toggled to the HSV picker").formatted(hueSpan * 360));
 		}
 
 		HsvPickerModel.AxisFit hFit = fitTrimmed(hTs, hPxs);
