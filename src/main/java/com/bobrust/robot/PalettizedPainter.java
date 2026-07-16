@@ -146,6 +146,7 @@ public class PalettizedPainter {
 			ProbePlanner.DEFAULT_PROBES_PER_AXIS);
 		if (!probe.ok()) {
 			LOGGER.error("Palettized probe failed: {}", probe.failure());
+			dumpProbeDebug(sensor);
 			throw new PaintingInterrupted(drawnStamps, InterruptType.ColorEntryFailed);
 		}
 		this.fittedModel = probe.model();
@@ -276,6 +277,52 @@ public class PalettizedPainter {
 	}
 
 	// ------------------------------------------------------------- plumbing
+
+	/**
+	 * On a probe failure, dump the captured picker regions + swatch reads at the four SV-square
+	 * corners to {@code logs/palettized-probe-debug/}, so ground reality is visible: which region
+	 * is mis-marked, and whether the swatch actually tracks the SV click (TL~white, TR~full-hue,
+	 * BL/BR~dark at a mid hue). Best-effort; never throws.
+	 */
+	private void dumpProbeDebug(RobotSensor sensor) {
+		try {
+			java.io.File dir = new java.io.File("logs/palettized-probe-debug");
+			dir.mkdirs();
+			savePng(paced.captureRegion(hueRect), new java.io.File(dir, "hue_bar.png"));
+			savePng(paced.captureRegion(svRect), new java.io.File(dir, "sv_square.png"));
+			savePng(paced.captureRegion(swatchReadRect), new java.io.File(dir, "swatch.png"));
+			StringBuilder log = new StringBuilder();
+			log.append("marked rects  sv=").append(svRect).append("  hue=").append(hueRect)
+				.append("  swatch=").append(swatchReadRect).append('\n');
+			sensor.clickHue(hueRect.y + hueRect.height / 2);   // a mid hue
+			int[][] corners = {
+				{ svRect.x + 2, svRect.y + 2 },
+				{ svRect.x + svRect.width - 3, svRect.y + 2 },
+				{ svRect.x + 2, svRect.y + svRect.height - 3 },
+				{ svRect.x + svRect.width - 3, svRect.y + svRect.height - 3 },
+			};
+			String[] names = { "TL", "TR", "BL", "BR" };
+			for (int i = 0; i < corners.length; i++) {
+				sensor.clickSv(corners[i][0], corners[i][1]);
+				int rgb = sensor.readSwatch();
+				savePng(paced.captureRegion(swatchReadRect), new java.io.File(dir, "swatch_" + names[i] + ".png"));
+				log.append("SV ").append(names[i]).append(" click(").append(corners[i][0]).append(',')
+					.append(corners[i][1]).append(") -> swatch #").append(String.format("%06x", rgb & 0xffffff))
+					.append("  (expect TL~white, TR~full-hue, BL/BR~dark)\n");
+			}
+			java.nio.file.Files.writeString(new java.io.File(dir, "probe_debug.txt").toPath(), log.toString());
+			LOGGER.info("Palettized probe debug written to {}  (hue_bar/sv_square/swatch/swatch_TL..BR.png + probe_debug.txt)",
+				dir.getAbsolutePath());
+		} catch (Exception e) {
+			LOGGER.warn("Palettized probe debug dump failed: {}", e.toString());
+		}
+	}
+
+	private static void savePng(BufferedImage img, java.io.File file) throws java.io.IOException {
+		if (img != null) {
+			javax.imageio.ImageIO.write(img, "png", file);
+		}
+	}
 
 	/** The paced sensor the probe + color entry drive (clicks and swatch reads). */
 	private class RobotSensor implements PickerSensor {
