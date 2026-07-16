@@ -157,7 +157,10 @@ public interface Settings {
 	BoolType SettingsPalettizedDither = new BoolType(false);
 
 	/** Palettized: click the clear-canvas button before painting. */
-	BoolType SettingsPalettizedClearFirst = new BoolType(true);
+	// Default OFF: there is no calibrated clear-canvas button in the Setup flow (and no such
+	// button is confirmed in the current Rust paint UI), so leaving it ON would be a no-op
+	// toggle. The tiler covers every cell anyway. Enable once a clear-canvas coord is wired.
+	BoolType SettingsPalettizedClearFirst = new BoolType(false);
 
 	/** Palettized: skip cells whose color matches the sign material (advanced). */
 	BoolType SettingsPalettizedSkipBase = new BoolType(false);

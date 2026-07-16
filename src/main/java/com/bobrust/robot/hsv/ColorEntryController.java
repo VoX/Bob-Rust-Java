@@ -94,6 +94,8 @@ public class ColorEntryController {
 		double[] targetHsv = HsvColor.rgbToHsv(targetRgb);
 
 		int bestRgb = 0;
+		int[] bestClicks = null;   // the picker position that produced bestRgb (to re-issue on loose adoption)
+		int[] lastClicked = null;  // the position the picker physically reflects right now
 		double bestDeltaE = Double.MAX_VALUE;
 		int reads = 0;
 		int clickCount = 0;
@@ -107,6 +109,7 @@ public class ColorEntryController {
 				clickCount++;
 			}
 			sensor.clickSv(clicks[0], clicks[1]);
+			lastClicked = clicks;   // the picker now physically reflects `clicks`
 			clickCount++;
 
 			int got = sensor.readSwatch() | 0xff000000;
@@ -117,6 +120,7 @@ public class ColorEntryController {
 			if (deltaE < bestDeltaE) {
 				bestDeltaE = deltaE;
 				bestRgb = got;
+				bestClicks = clicks;
 			}
 			if (got == predicted || deltaE <= accept) {
 				maybeRefit();
@@ -132,6 +136,20 @@ public class ColorEntryController {
 
 		maybeRefit();
 		if (bestDeltaE <= acceptLoose) {
+			// The picker physically reflects `lastClicked`, but the best read-back was at
+			// `bestClicks`. Adopting bestRgb while the picker sits at a different (worse)
+			// position would paint a DIFFERENT color than we record (PalettizedPainter never
+			// re-issues color per stamp). Re-issue the best position so the picker's live
+			// state == the adopted color — the "canvas == adopted palette, byte-exact" contract.
+			if (bestClicks != lastClicked) {
+				if (lastHueClick == null || lastHueClick != bestClicks[2]) {
+					sensor.clickHue(bestClicks[2]);
+					lastHueClick = bestClicks[2];
+					clickCount++;
+				}
+				sensor.clickSv(bestClicks[0], bestClicks[1]);
+				clickCount++;
+			}
 			return new Result(Status.ADOPTED, bestRgb, reads, clickCount, true, bestDeltaE);
 		}
 		return new Result(Status.FAILED, 0, reads, clickCount, false, bestDeltaE);

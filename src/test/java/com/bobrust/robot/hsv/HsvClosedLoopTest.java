@@ -247,6 +247,48 @@ public class HsvClosedLoopTest {
 	}
 
 	@Test
+	public void looseAdoptionLeavesThePickerOnTheAdoptedColor() throws Exception {
+		// Regression: on the loose-exhaustion path the controller adopts the best-so-far
+		// read (captured at some earlier nudge), but the picker is physically left on the
+		// LAST clicked position. PalettizedPainter paints the picker's live color and never
+		// re-issues per stamp — so the canvas would get a DIFFERENT color than adoptedPalette
+		// records (silent corruption, measured up to dE00 ~11). After the fix the picker must
+		// end physically on the adopted color's position.
+		int[] palette = corpusPalette();
+		SimulatedPicker picker = SimulatedPicker.standard();
+		Rectangle svRect = markedSvRect();
+		Rectangle hueRect = markedHueRect();
+		picker.allowedSv = svRect;
+		picker.allowedHue = hueRect;
+
+		ProbeResult probe = ProbePlanner.probe(picker, svRect, hueRect, ProbePlanner.DEFAULT_PROBES_PER_AXIS);
+		assertTrue(probe.ok(), () -> "probe failed: " + probe.failure());
+
+		// accept=0 (no gained read is ever byte-exact) + a generous loose bound forces EVERY
+		// color down the loose-exhaustion path; refit off so the gain error persists and the loop
+		// nudges AWAY from the best (first) position — i.e. best != last, the exact bug shape.
+		picker.channelGain = 1.01;
+		ColorEntryController controller = new ColorEntryController(picker, probe.model(), svRect, hueRect,
+			ColorEntryController.DEFAULT_MAX_READS, 0.0, 5.0, false);
+
+		int looseSeen = 0;
+		for (int target : palette) {
+			Result result = controller.enter(target);
+			if (result.status() != Status.ADOPTED) {
+				continue;
+			}
+			// THE CONTRACT (§2.4): the picker's live swatch == the color we recorded to paint.
+			assertEquals(result.adoptedRgb() & 0xffffff, picker.readSwatch() & 0xffffff,
+				"picker's live color must equal the adopted color for %06x (loose=%s)"
+					.formatted(target & 0xffffff, result.loose()));
+			if (result.loose()) {
+				looseSeen++;
+			}
+		}
+		assertTrue(looseSeen > 0, "test must actually exercise the loose-adoption path");
+	}
+
+	@Test
 	public void closedLoopConvergesOnAFlippedPicker() throws Exception {
 		SimulatedPicker picker = new SimulatedPicker(0, 0, SV_PX, SV_PX, 0, SV_PX, true);
 		Rectangle svRect = markedSvRect();

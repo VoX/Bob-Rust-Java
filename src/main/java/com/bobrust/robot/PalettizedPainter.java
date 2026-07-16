@@ -125,8 +125,10 @@ public class PalettizedPainter {
 		// Make sure that we have selected the game
 		paced.clickPoint(transform(point(buttons.focus)), 4, SETUP_CLICK_DELAY_MS);
 
-		// A deterministic substrate — but never when resuming into paint
-		if (config.clearFirst() && resumeFrom == 0) {
+		// A deterministic substrate — but never when resuming into paint, and only
+		// when the clear-canvas button is actually calibrated (an uncalibrated
+		// coordinate is DEFAULT (0,0) → a stray click at the monitor origin).
+		if (config.clearFirst() && resumeFrom == 0 && buttons.clearCanvas.valid()) {
 			paced.clickPoint(transform(point(buttons.clearCanvas)), SETUP_CLICK_DELAY_MS);
 		}
 
