@@ -3,6 +3,8 @@ package com.bobrust.gui.dialog;
 import com.bobrust.gui.ApplicationWindow;
 import com.bobrust.gui.OverlayTopPanel;
 import com.bobrust.gui.render.ShapeRender;
+import com.bobrust.settings.Settings;
+import com.bobrust.settings.data.DrawingMode;
 import com.bobrust.util.data.AppConstants;
 
 import javax.swing.*;
@@ -124,15 +126,27 @@ public class ScreenDrawDialog extends JDialog {
 		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		// g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER).derive(0.5f));
 		// g.drawImage(drawImage, imageRect.x, imageRect.y, imageRect.width, imageRect.height, null);
-		
-		synchronized (drawDialog.borstGenerator.data) {
-			final var data = drawDialog.borstGenerator.data;
-			int shapes = data.getBlobs().size();
-			shapes = Math.min(drawDialog.shapesSlider.getValue(), shapes);
-			
-			BufferedImage shapeImage = shapeRender.getImage(data, shapes);
-			if (shapeImage != null) {
-				g.drawImage(shapeImage, canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height, null);
+
+		if (Settings.SettingsDrawingMode.get() == DrawingMode.Palettized) {
+			// The quantized-and-snapped cell grid IS the promised result —
+			// nearest-neighbor so cells stay crisp (PLAN-PALETTIZED-MODE.md §7)
+			BufferedImage cellImage = drawDialog.getPalettizedPreviewImage();
+			if (cellImage != null) {
+				g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+					RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+				g.drawImage(cellImage, canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height, null);
+				g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			}
+		} else {
+			synchronized (drawDialog.borstGenerator.data) {
+				final var data = drawDialog.borstGenerator.data;
+				int shapes = data.getBlobs().size();
+				shapes = Math.min(drawDialog.shapesSlider.getValue(), shapes);
+
+				BufferedImage shapeImage = shapeRender.getImage(data, shapes);
+				if (shapeImage != null) {
+					g.drawImage(shapeImage, canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height, null);
+				}
 			}
 		}
 		

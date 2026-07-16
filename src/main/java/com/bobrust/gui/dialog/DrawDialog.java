@@ -9,15 +9,23 @@ import com.bobrust.generator.Model;
 import com.bobrust.generator.sorter.Blob;
 import com.bobrust.generator.sorter.BlobList;
 import com.bobrust.generator.sorter.PaintPlan;
+import com.bobrust.generator.tiler.PalettizedPlanner;
+import com.bobrust.generator.tiler.SquareBrushGeometry;
 import com.bobrust.util.metrics.ImageMetrics;
 import com.bobrust.gui.comp.JIntegerField;
 import com.bobrust.gui.comp.JResizeComponent;
 import com.bobrust.gui.comp.JStyledToggleButton;
 import com.bobrust.robot.BobRustPainter;
 import com.bobrust.robot.BobRustPalette;
+import com.bobrust.robot.FieldInput;
+import com.bobrust.robot.PalettizedPainter;
 import com.bobrust.robot.error.PaintingInterrupted;
+import com.bobrust.robot.hsv.HsvPickerModel;
+import com.bobrust.robot.io.AwtRobotIO;
 import com.bobrust.settings.Settings;
+import com.bobrust.settings.data.DrawingMode;
 import com.bobrust.settings.data.PaintPreset;
+import com.bobrust.settings.data.PalettizedDetail;
 import com.bobrust.util.*;
 import com.bobrust.util.data.AppConstants;
 import org.apache.logging.log4j.Level;
@@ -38,7 +46,7 @@ import java.util.Map;
 
 public class DrawDialog extends JDialog {
 	private static final Logger LOGGER = LogManager.getLogger(DrawDialog.class);
-	private static final Dimension REGULAR = new Dimension(320, 270);
+	private static final Dimension REGULAR = new Dimension(320, 300);
 	private static final Dimension MINIMIZED = new Dimension(120, 40);
 	/** Debounce for the live estimate recompute (S2). */
 	private static final int ESTIMATE_DEBOUNCE_MS = 300;
@@ -57,6 +65,23 @@ public class DrawDialog extends JDialog {
 
 	private final JLabel minShapeLabel;
 	private final JLabel maxShapeLabel;
+
+	// Palettized mode (PLAN-PALETTIZED-MODE.md §7): mode toggle + control set
+	private final JStyledToggleButton brushModeButton;
+	private final JStyledToggleButton palettizedModeButton;
+	private final JPanel palettizedPanel;
+	private JIntegerField palettizedColorsField;
+	private JSlider palettizedColorsSlider;
+	/** Guards the colors field/slider two-way sync from looping. */
+	private boolean suppressColorsSync;
+	/** The latest computed palettized plan + exact preview (worker-published). */
+	private volatile PalettizedPlanner.PlanResult palettizedPlanResult;
+
+	// SA-only rows, hidden in palettized mode
+	private final JPanel qualityLabelPanel;
+	private final JPanel presetPanel;
+	private final JLabel shapeCountLabel;
+	private final JPanel shapeCountPanel;
 
 	// S3 preset row + S2 live estimate readout
 	private final Map<PaintPreset, JStyledToggleButton> presetButtons = new EnumMap<>(PaintPreset.class);
@@ -113,9 +138,29 @@ public class DrawDialog extends JDialog {
 		rootPanel.setBorder(new EmptyBorder(3, 3, 3, 3));
 		setContentPane(rootPanel);
 
+		// The drawing-mode toggle (PLAN-PALETTIZED-MODE.md §7): a per-draw
+		// decision, so it lives here and not in the settings dialog.
+		JPanel modePanel = new JPanel();
+		modePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		modePanel.setLayout(new BoxLayout(modePanel, BoxLayout.X_AXIS));
+		brushModeButton = new JStyledToggleButton("Brush (palette)");
+		brushModeButton.setToolTipText("The classic pipeline: annealed shapes over the 64-swatch palette");
+		palettizedModeButton = new JStyledToggleButton("Palettized (pixel)");
+		palettizedModeButton.setToolTipText(
+			"Quantize to N exact colors, square-tile, colors entered through the HSV picker at full opacity. "
+				+ "Toggle the COLOUR panel to the HSV picker before painting.");
+		ButtonGroup modeGroup = new ButtonGroup();
+		modeGroup.add(brushModeButton);
+		modeGroup.add(palettizedModeButton);
+		brushModeButton.addActionListener(event -> setDrawingMode(DrawingMode.Brush));
+		palettizedModeButton.addActionListener(event -> setDrawingMode(DrawingMode.Palettized));
+		modePanel.add(brushModeButton);
+		modePanel.add(palettizedModeButton);
+		rootPanel.add(modePanel);
+
 		// S3: the preset ladder — four named points on the measured
 		// speed/quality curve; the shape slider below stays the fine control.
-		JPanel qualityLabelPanel = new JPanel();
+		qualityLabelPanel = new JPanel();
 		qualityLabelPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		qualityLabelPanel.setLayout(new BoxLayout(qualityLabelPanel, BoxLayout.X_AXIS));
 		qualityLabelPanel.add(new JLabel("Quality"));
@@ -124,7 +169,7 @@ public class DrawDialog extends JDialog {
 		qualityLabelPanel.add(presetCustomLabel);
 		rootPanel.add(qualityLabelPanel);
 
-		JPanel presetPanel = new JPanel();
+		presetPanel = new JPanel();
 		presetPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		presetPanel.setLayout(new BoxLayout(presetPanel, BoxLayout.X_AXIS));
 		for (PaintPreset preset : PaintPreset.values()) {
@@ -157,12 +202,14 @@ public class DrawDialog extends JDialog {
 		stencilCheckbox.addActionListener(event -> onStencilToggled());
 		rootPanel.add(stencilCheckbox);
 
-		rootPanel.add(new JLabel("Shape Count"));
+		shapeCountLabel = new JLabel("Shape Count");
+		rootPanel.add(shapeCountLabel);
 
 		JPanel panel = new JPanel();
 		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		panel.setLayout(new BoxLayout(panel, BoxLayout.X_AXIS));
 		rootPanel.add(panel);
+		shapeCountPanel = panel;
 
 		Dimension buttonSize = new Dimension(60, 20);
 		shapesSlider = new JSlider();
@@ -219,6 +266,9 @@ public class DrawDialog extends JDialog {
 		maxShapeLabel = new JLabel("1");
 		maxShapeLabel.setBorder(new EmptyBorder(0, 5, 0, 10));
 		panel.add(maxShapeLabel);
+
+		palettizedPanel = createPalettizedPanel();
+		rootPanel.add(palettizedPanel);
 
 		JLabel clickIntervalLabel = new JLabel("Clicks per second");
 		clickIntervalLabel.setToolTipText("The amount of clicks per second");
@@ -284,6 +334,12 @@ public class DrawDialog extends JDialog {
 		JButton colorPaletteButton = new JButton("Select Color Palette And Draw");
 		colorPaletteButton.setFocusable(false);
 		colorPaletteButton.addActionListener((event) -> {
+			if (Settings.SettingsDrawingMode.get() == DrawingMode.Palettized) {
+				// No 64-swatch scan in palettized mode — the probe pass is the
+				// pre-flight (§7 draw-button gate)
+				startPalettizedDrawingAction(getLocation());
+				return;
+			}
 			if (findColorPalette()) {
 				previousBorstModel = borstGenerator.stop();
 
@@ -294,6 +350,158 @@ public class DrawDialog extends JDialog {
 			}
 		});
 		rootPanel.add(colorPaletteButton);
+
+		updateModeVisibility();
+	}
+
+	/** The palettized control set (§7): colors, detail, dither, clear, skip-base. */
+	private JPanel createPalettizedPanel() {
+		JPanel root = new JPanel();
+		root.setAlignmentX(Component.LEFT_ALIGNMENT);
+		root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+
+		JLabel colorsLabel = new JLabel("Colors");
+		colorsLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		root.add(colorsLabel);
+
+		JPanel colorsRow = new JPanel();
+		colorsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		colorsRow.setLayout(new BoxLayout(colorsRow, BoxLayout.X_AXIS));
+
+		Dimension fieldSize = new Dimension(60, 20);
+		palettizedColorsField = new JIntegerField(
+			Settings.SettingsPalettizedColors.get(),
+			Settings.SettingsPalettizedColors.getMin(),
+			Settings.SettingsPalettizedColors.getMax());
+		palettizedColorsField.setMaximumSize(fieldSize);
+		palettizedColorsField.setPreferredSize(fieldSize);
+		palettizedColorsField.addActionListener(event -> {
+			int value = palettizedColorsField.getNumberValue();
+			Settings.SettingsPalettizedColors.set(value);
+			if (!suppressColorsSync) {
+				suppressColorsSync = true;
+				try {
+					palettizedColorsSlider.setValue(value);
+				} finally {
+					suppressColorsSync = false;
+				}
+			}
+			scheduleEstimate();
+		});
+		colorsRow.add(palettizedColorsField);
+
+		palettizedColorsSlider = new JSlider(
+			Settings.SettingsPalettizedColors.getMin(),
+			Settings.SettingsPalettizedColors.getMax(),
+			Settings.SettingsPalettizedColors.get());
+		palettizedColorsSlider.setOpaque(false);
+		palettizedColorsSlider.addChangeListener(event -> {
+			if (suppressColorsSync) {
+				return;
+			}
+			int value = palettizedColorsSlider.getValue();
+			Settings.SettingsPalettizedColors.set(value);
+			suppressColorsSync = true;
+			try {
+				palettizedColorsField.setText(Integer.toString(value));
+			} finally {
+				suppressColorsSync = false;
+			}
+			scheduleEstimate();
+		});
+		colorsRow.add(palettizedColorsSlider);
+		root.add(colorsRow);
+
+		JPanel detailRow = new JPanel();
+		detailRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		detailRow.setLayout(new BoxLayout(detailRow, BoxLayout.X_AXIS));
+		JLabel detailLabel = new JLabel("Detail ");
+		detailRow.add(detailLabel);
+		JComboBox<PalettizedDetail> detailCombo = new JComboBox<>(PalettizedDetail.values());
+		detailCombo.setSelectedItem(Settings.SettingsPalettizedDetail.get());
+		detailCombo.setMaximumSize(new Dimension(120, 22));
+		detailCombo.setToolTipText("Fine: pitch 3.2 texels (160x160 on XL). Economy: pitch 4.0 — "
+			+ "20-35% fewer actions, visibly blockier.");
+		detailCombo.addActionListener(event -> {
+			Settings.SettingsPalettizedDetail.set((PalettizedDetail) detailCombo.getSelectedItem());
+			scheduleEstimate();
+		});
+		detailRow.add(detailCombo);
+		root.add(detailRow);
+
+		JCheckBox ditherCheckbox = new JCheckBox("Dither");
+		ditherCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+		ditherCheckbox.setFocusable(false);
+		ditherCheckbox.setSelected(Settings.SettingsPalettizedDither.get());
+		ditherCheckbox.setToolTipText("Floyd-Steinberg error diffusion: smoother gradients at roughly "
+			+ "2x the stamps on smooth images");
+		ditherCheckbox.addActionListener(event -> {
+			Settings.SettingsPalettizedDither.set(ditherCheckbox.isSelected());
+			scheduleEstimate();
+		});
+		root.add(ditherCheckbox);
+
+		JCheckBox clearFirstCheckbox = new JCheckBox("Clear canvas first");
+		clearFirstCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+		clearFirstCheckbox.setFocusable(false);
+		clearFirstCheckbox.setSelected(Settings.SettingsPalettizedClearFirst.get());
+		clearFirstCheckbox.setToolTipText("One clear-canvas click before painting: a deterministic substrate");
+		clearFirstCheckbox.addActionListener(event ->
+			Settings.SettingsPalettizedClearFirst.set(clearFirstCheckbox.isSelected()));
+		root.add(clearFirstCheckbox);
+
+		JCheckBox skipBaseCheckbox = new JCheckBox("Skip sign-colored cells");
+		skipBaseCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+		skipBaseCheckbox.setFocusable(false);
+		skipBaseCheckbox.setSelected(Settings.SettingsPalettizedSkipBase.get());
+		skipBaseCheckbox.setToolTipText("Advanced: leave cells matching the sign material unpainted. "
+			+ "The material is textured and lighting-shifted in game — only for freshly placed signs.");
+		skipBaseCheckbox.addActionListener(event -> {
+			Settings.SettingsPalettizedSkipBase.set(skipBaseCheckbox.isSelected());
+			scheduleEstimate();
+		});
+		root.add(skipBaseCheckbox);
+
+		return root;
+	}
+
+	/** Mode toggle handler: persist, swap the control set, swap the pipeline. */
+	private void setDrawingMode(DrawingMode mode) {
+		if (Settings.SettingsDrawingMode.get() == mode) {
+			return;
+		}
+		Settings.SettingsDrawingMode.set(mode);
+		updateModeVisibility();
+
+		if (mode == DrawingMode.Palettized) {
+			// The SA generator is pure waste while palettized is selected
+			previousBorstModel = borstGenerator.stop();
+		} else if (monitor != null) {
+			restartGenerationFresh();
+		}
+		scheduleEstimate();
+		parent.repaint();
+	}
+
+	/** Shows the control set of the active mode (SA rows ⇄ palettized rows). */
+	private void updateModeVisibility() {
+		boolean palettized = Settings.SettingsDrawingMode.get() == DrawingMode.Palettized;
+		qualityLabelPanel.setVisible(!palettized);
+		presetPanel.setVisible(!palettized);
+		stencilCheckbox.setVisible(!palettized);
+		shapeCountLabel.setVisible(!palettized);
+		shapeCountPanel.setVisible(!palettized);
+		palettizedPanel.setVisible(palettized);
+		brushModeButton.setSelected(!palettized);
+		palettizedModeButton.setSelected(palettized);
+		getContentPane().revalidate();
+		getContentPane().repaint();
+	}
+
+	/** The exact palettized preview for {@link ScreenDrawDialog}, or null. */
+	BufferedImage getPalettizedPreviewImage() {
+		PalettizedPlanner.PlanResult result = palettizedPlanResult;
+		return result == null ? null : result.cellImage();
 	}
 
 	/**
@@ -408,6 +616,10 @@ public class DrawDialog extends JDialog {
 	 * and runs the calibrated cost model over it.
 	 */
 	private void runEstimate() {
+		if (Settings.SettingsDrawingMode.get() == DrawingMode.Palettized) {
+			runPalettizedEstimate();
+			return;
+		}
 		final int request = ++estimateRequest;
 		final int count = shapesSlider.getValue();
 		final int cps = Math.max(1, clickIntervalField.getNumberValue());
@@ -479,6 +691,184 @@ public class DrawDialog extends JDialog {
 		return seconds < 60
 			? "%ds".formatted(seconds)
 			: "%dm %02ds".formatted(seconds / 60, seconds % 60);
+	}
+
+	/**
+	 * Palettized branch of the live estimate: recompute the plan (quantize +
+	 * snap + tile — tens of ms at cell resolution) and the §7 cost model off
+	 * the EDT. The published PlanResult doubles as the preview and the plan
+	 * the draw button executes, so preview == paint by construction.
+	 */
+	private void runPalettizedEstimate() {
+		final int request = ++estimateRequest;
+		final Image source = parent.parent.getDrawImage();
+		final Rectangle canvasRect = new Rectangle(parent.parent.getCanvasRect());
+		final Rectangle imageRect = new Rectangle(parent.parent.getImageRect());
+		if (source == null || canvasRect.width <= 0 || canvasRect.height <= 0) {
+			return;
+		}
+
+		final Sign sign = Settings.SettingsSign.get();
+		final Color background = Settings.getSettingsBackgroundCalculated();
+		final int colors = Settings.SettingsPalettizedColors.get();
+		final double pitch = Settings.SettingsPalettizedDetail.get().getPitch();
+		final boolean dither = Settings.SettingsPalettizedDither.get();
+		final boolean skipBase = Settings.SettingsPalettizedSkipBase.get();
+		final SquareBrushGeometry brush = SquareBrushGeometry.parse(Settings.SettingsSquareBrush.get());
+		final HsvPickerModel snapModel = HsvPickerModel.parse(Settings.SettingsHsvPicker.get());
+		final int cps = Math.max(1, clickIntervalField.getNumberValue());
+		final int verifyInterval = Math.max(1, Settings.SettingsClickVerifyInterval.get());
+		final int autosaveInterval = Math.max(1, Settings.SettingsAutosaveInterval.get());
+		final double captureMs = Settings.getCaptureMs();
+
+		new SwingWorker<PalettizedPlanner.PlanResult, Void>() {
+			@Override
+			protected PalettizedPlanner.PlanResult doInBackground() {
+				try {
+					return PalettizedPlanner.plan(source, canvasRect, imageRect, sign, background,
+						colors, pitch, dither, skipBase, brush, snapModel);
+				} catch (Exception e) {
+					LOGGER.warn("Palettized plan computation failed", e);
+					return null;
+				}
+			}
+
+			@Override
+			protected void done() {
+				if (request != estimateRequest) {
+					return; // A newer estimate is on its way
+				}
+				PalettizedPlanner.PlanResult result;
+				try {
+					result = get();
+				} catch (Exception e) {
+					return;
+				}
+				if (result == null) {
+					return;
+				}
+
+				// An identical recompute keeps the old plan object so an
+				// interrupted paint's resume cursor survives control nudges
+				PalettizedPlanner.PlanResult previous = palettizedPlanResult;
+				if (previous == null
+						|| !previous.plan().getOps().equals(result.plan().getOps())
+						|| !java.util.Arrays.equals(previous.plan().getPaletteRgb(), result.plan().getPaletteRgb())) {
+					palettizedPlanResult = result;
+				}
+
+				PalettizedTimeEstimator.Estimate estimate = PalettizedTimeEstimator.estimate(
+					palettizedPlanResult.plan(), cps, captureMs, verifyInterval, autosaveInterval);
+				estimateLabel.setText("≈ %s paint".formatted(formatDuration(estimate.millis())));
+				estimateDetailLabel.setText("%d colors · %d stamps · %d size entries"
+					.formatted(estimate.colors(), estimate.stamps(), estimate.sizeEntries()));
+				parent.topPanel.setExactGenerationLabel(estimate.millis());
+				parent.repaint();
+			}
+		}.execute();
+	}
+
+	/**
+	 * The palettized draw path (§6/§7): gate on calibration, then run the
+	 * PalettizedPainter over the current plan in the same UI envelope as the
+	 * legacy path. The resume cursor advances by whatever the interrupt
+	 * carried; pressing draw again continues the same plan.
+	 */
+	private void startPalettizedDrawingAction(Point previousLocation) {
+		PalettizedPlanner.PlanResult planResult = palettizedPlanResult;
+		if (planResult == null || planResult.plan().getTotalStamps() == 0) {
+			Toolkit.getDefaultToolkit().beep();
+			LOGGER.warn("No palettized plan computed yet — nothing to paint");
+			return;
+		}
+		if (!parent.parent.config.isPalettizedCalibrated()) {
+			JOptionPane.showMessageDialog(this,
+				"Palettized mode needs its picker calibration.\n"
+					+ "Run 'Setup Buttons' and mark the square brush, SIZE/OPACITY fields,\n"
+					+ "SV square, hue bar and color swatch (with the COLOUR panel toggled\n"
+					+ "to the HSV picker).",
+				"Palettized mode is not calibrated",
+				JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+
+		parent.setAlwaysOnTop(true);
+		parent.repaint();
+		setAlwaysOnTop(true);
+		start = -1;
+
+		Thread thread = new Thread(() -> {
+			var plan = planResult.plan();
+			PalettizedPainter painter = null;
+			int offsetStamps = 0;
+			try {
+				setLocation(monitor.getBounds().getLocation());
+				setSize(MINIMIZED);
+
+				Robot robot = new Robot(monitor.getDevice());
+				robot.setAutoDelay(0);
+				Rectangle bounds = monitor.getBounds();
+
+				FieldInput.DecimalKey decimalKey;
+				try {
+					decimalKey = FieldInput.DecimalKey.valueOf(Settings.SettingsPalettizedDecimalKey.get());
+				} catch (IllegalArgumentException e) {
+					decimalKey = FieldInput.DecimalKey.PERIOD;
+				}
+
+				PalettizedPainter.Config config = new PalettizedPainter.Config(
+					parent.parent.config,
+					parent.canvasRect,
+					bounds.x, bounds.y,
+					Settings.SettingsSign.get().getWidth(),
+					Settings.SettingsSign.get().getHeight(),
+					Settings.SettingsPalettizedDetail.get().getPitch(),
+					SquareBrushGeometry.parse(Settings.SettingsSquareBrush.get()),
+					Settings.SettingsClickInterval.get(),
+					Settings.SettingsAutosaveInterval.get(),
+					Math.max(1, Settings.SettingsClickVerifyInterval.get()),
+					Settings.SettingsPalettizedClearFirst.get(),
+					Settings.SettingsPalettizedPaste.get(),
+					decimalKey);
+				painter = new PalettizedPainter(new AwtRobotIO(robot), config);
+
+				int remaining = plan.getTotalStamps() - plan.getPaintedStamps();
+				updateTimeRemaining(0, remaining);
+				LOGGER.info("Start palettized drawing");
+				LOGGER.info("- Colors         : {}", plan.getColorEntries());
+				LOGGER.info("- Stamps         : {} (resume cursor {})", plan.getTotalStamps(), plan.getPaintedStamps());
+				LOGGER.info("- Pitch          : {}", Settings.SettingsPalettizedDetail.get().getPitch());
+				LOGGER.info("- Click Interval : {}", Settings.SettingsClickInterval.get());
+
+				painter.startDrawing(plan, this::updateTimeRemaining);
+			} catch (PaintingInterrupted e) {
+				boolean finished = e.getInterruptType() == PaintingInterrupted.InterruptType.PaintingFinished;
+				Level level = finished ? Level.INFO : Level.WARN;
+				LOGGER.log(level, finished ? "Palettized painting finished" : "Palettized painting stopped early");
+				LOGGER.log(level, "- Type   : {}", e.getInterruptType());
+				LOGGER.log(level, "- Stamps : {}", e.getDrawnShapes());
+				offsetStamps = e.getDrawnShapes();
+			} catch (Exception e) {
+				LOGGER.throwing(e);
+			} finally {
+				plan.advancePainted(offsetStamps);
+
+				// Persist the probe-fitted picker mapping as the next prior —
+				// future previews snap through the truth, not the guess
+				if (painter != null && painter.getFittedModel() != null) {
+					Settings.SettingsHsvPicker.set(painter.getFittedModel().serialize());
+				}
+
+				parent.setAlwaysOnTop(false);
+				setAlwaysOnTop(false);
+				parent.repaint();
+
+				setLocation(previousLocation);
+				setSize(REGULAR);
+			}
+		}, "BobRustPalettizedDrawing Thread");
+		thread.setDaemon(true);
+		thread.start();
 	}
 
 	private void startDrawingAction(Point previous_location) {
@@ -714,6 +1104,7 @@ public class DrawDialog extends JDialog {
 		previousBorstModel = null;
 		rustPalette.reset();
 		paintPlan.reset();
+		palettizedPlanResult = null;
 		drawnShapes = 0;
 
 		// Update old graphics
@@ -724,9 +1115,13 @@ public class DrawDialog extends JDialog {
 		// preset before generation starts, so the generator picks up its
 		// configuration.
 		syncPresetFromSettings();
+		updateModeVisibility();
 
-		// Before we block
-		startGeneration(0);
+		// Before we block. The SA generator only runs in brush mode; the
+		// palettized plan is computed by the (debounced) estimate worker.
+		if (Settings.SettingsDrawingMode.get() == DrawingMode.Brush) {
+			startGeneration(0);
+		}
 		scheduleEstimate();
 
 		setLocation(point);

@@ -179,6 +179,20 @@ public interface Settings {
 	 */
 	StringType SettingsHsvPicker = new StringType(null);
 
+	/**
+	 * Palettized: enter SIZE/OPACITY values by clipboard paste (primary,
+	 * layout-immune). False switches to the typed numpad fallback. Hidden.
+	 */
+	BoolType SettingsPalettizedPaste = new BoolType(true);
+
+	/**
+	 * Palettized: which decimal-separator key the typed fallback sends —
+	 * {@code PERIOD}, {@code DECIMAL} or {@code COMMA}
+	 * ({@link com.bobrust.robot.FieldInput.DecimalKey}; comma-locale games,
+	 * edge case 21). Hidden.
+	 */
+	StringType SettingsPalettizedDecimalKey = new StringType("PERIOD");
+
 	// Used for internal save state
 	InternalSettings InternalSettings = new InternalSettings();
 	
